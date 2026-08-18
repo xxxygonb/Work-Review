@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import type { Unsubscriber } from 'svelte/store';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { emitTo, listen } from '@tauri-apps/api/event';
   import type { PhysicalPosition } from '@tauri-apps/api/dpi';
   import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
@@ -128,51 +128,27 @@
   const RUNTIME_BUBBLE_MESSAGES: Partial<Record<string, Partial<Record<Locale, string>>>> = {
     __avatar_nudge_switch_companion__: {
       'zh-CN': '你切得有点快，我陪你回主线。',
-      'zh-TW': '你切得有點快，我陪你回主線。',
-      en: 'You are switching fast. Let us get back to the main thread.',
-      ar: 'أنت تبدّل بسرعة، لنعد معاً إلى المهمة الرئيسية.',
     },
     __avatar_nudge_switch_assistant__: {
       'zh-CN': '切换有点频繁，建议先回到当前主线。',
-      'zh-TW': '切換有點頻繁，建議先回到目前主線。',
-      en: 'Lots of switching. It may help to return to the current thread first.',
-      ar: 'التبديل متكرر، يُستحسن العودة إلى المهمة الحالية أولاً.',
     },
     __avatar_nudge_switch_coach__: {
       'zh-CN': '别再切了，先把手上这段收住。',
-      'zh-TW': '別再切了，先把手上這段收住。',
-      en: 'Enough switching. Close this stretch before moving on.',
-      ar: 'توقف عن التبديل وأنهِ ما بين يديك أولاً.',
     },
     '先放松一下，待会再继续推进。': {
       'zh-CN': '先放松一下，待会再继续推进。',
-      'zh-TW': '先放鬆一下，待會再繼續推進。',
-      en: 'Take a short break, then continue when you are ready.',
-      ar: 'خذ استراحة قصيرة ثم واصل لاحقاً.',
     },
     '该休息一下了，起来活动活动吧。': {
       'zh-CN': '该休息一下了，起来活动活动吧。',
-      'zh-TW': '該休息一下了，起來活動活動吧。',
-      en: 'Time for a break. Stand up and stretch a bit.',
-      ar: 'حان وقت الاستراحة، انهض وتحرّك قليلاً.',
     },
     '开始整理日报，稍等我一下。': {
       'zh-CN': '开始整理日报，稍等我一下。',
-      'zh-TW': '開始整理日報，稍等我一下。',
-      en: "I'm preparing your daily report. Give me a moment.",
-      ar: 'أُحضّر تقريرك اليومي، لحظة من فضلك.',
     },
     '日报整理好了，可以回来看看。': {
       'zh-CN': '日报整理好了，可以回来看看。',
-      'zh-TW': '日報整理好了，可以回來看看。',
-      en: 'Your daily report is ready. You can check it now.',
-      ar: 'تقريرك اليومي جاهز، يمكنك الاطلاع عليه الآن.',
     },
     '这次日报整理失败了，稍后可以再试。': {
       'zh-CN': '这次日报整理失败了，稍后可以再试。',
-      'zh-TW': '這次日報整理失敗了，稍後可以再試。',
-      en: 'This report run failed. Please try again later.',
-      ar: 'فشل إعداد التقرير هذه المرة، حاول لاحقاً.',
     },
   };
 

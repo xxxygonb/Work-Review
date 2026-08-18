@@ -193,17 +193,6 @@ import {
   BASIC_ASSISTANT_MODEL_ID,
 } from './lib/stores/assistant.ts';
 import {
-  createUpdateFlow,
-  type GithubUpdateInfo,
-  type GithubUpdateInstallResult,
-  type GithubUpdateStatusPayload,
-  type RunUpdateFlow,
-  type RunUpdateFlowOptions,
-  type RunUpdateFlowResult,
-  runUpdateFlow,
-  type UpdateFlowDependencies,
-} from './lib/utils/updater.ts';
-import {
   cache,
   type CacheActivity,
   type CacheEntry,
@@ -501,78 +490,6 @@ type ExpectedAssistantStore = {
     updater: ExpectedAssistantMessageUpdater,
   ) => void;
   reset: () => void;
-};
-
-type ExpectedGithubUpdateInfo = {
-  currentVersion: string;
-  latestVersion: string;
-  available: boolean;
-  autoUpdateReady: boolean;
-  releaseUrl: string;
-  body: string | null;
-  source: string | null;
-};
-
-type ExpectedGithubUpdateInstallResult = {
-  updated: boolean;
-  available: boolean;
-  version: string | null;
-  source: string | null;
-  message: string;
-  attemptedSources: string[];
-};
-
-type ExpectedGithubUpdateStatusPayload = {
-  stage: string;
-  message: string;
-  source: string | null;
-  version: string | null;
-  downloadedBytes: number | null;
-  totalBytes: number | null;
-  percent: number | null;
-};
-
-type ExpectedRunUpdateFlowOptions = {
-  silentWhenUpToDate?: boolean;
-  confirmBeforeDownload?: boolean;
-  onStatusChange?: (status: string) => void;
-};
-
-type ExpectedRunUpdateFlowResult =
-  | { skipped: true; reason: 'in-flight' }
-  | { updated: false; available: false }
-  | {
-      updated: false;
-      available: true;
-      autoUpdateReady: false;
-      releaseUrl: string;
-    }
-  | { updated: false; cancelled: true }
-  | { updated: true; handoffToInstaller: true }
-  | { updated: true }
-  | { updated: false; error: string };
-
-type ExpectedRunUpdateFlow = (
-  options?: ExpectedRunUpdateFlowOptions,
-) => Promise<ExpectedRunUpdateFlowResult>;
-
-type ExpectedUpdateFlowDependencies = {
-  invoke: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
-  listen: <T>(
-    event: string,
-    handler: (event: { payload: T }) => void,
-  ) => Promise<() => void>;
-  relaunch: () => Promise<void>;
-  open: (url: string) => Promise<void>;
-  confirm: (options?: ExpectedConfirmOptions) => Promise<boolean>;
-  showToast: (
-    message: unknown,
-    type?: ExpectedToastType,
-    duration?: number,
-  ) => void;
-  translate: (key: string, params?: Record<string, unknown>) => string;
-  warn: (message: string, error: unknown) => void;
-  error: (message: string, error: unknown) => void;
 };
 
 type ExpectedCacheActivity = {
@@ -1189,43 +1106,6 @@ type AssistantStreamCompatibilityContract = Expect<
   AssistantMessage extends StreamMessage ? true : false
 >;
 
-type GithubUpdateInfoContract = Expect<Equal<
-  GithubUpdateInfo,
-  ExpectedGithubUpdateInfo
->>;
-type GithubUpdateInstallResultContract = Expect<Equal<
-  GithubUpdateInstallResult,
-  ExpectedGithubUpdateInstallResult
->>;
-type GithubUpdateStatusPayloadContract = Expect<Equal<
-  GithubUpdateStatusPayload,
-  ExpectedGithubUpdateStatusPayload
->>;
-type RunUpdateFlowOptionsContract = Expect<Equal<
-  RunUpdateFlowOptions,
-  ExpectedRunUpdateFlowOptions
->>;
-type RunUpdateFlowResultContract = Expect<Equal<
-  RunUpdateFlowResult,
-  ExpectedRunUpdateFlowResult
->>;
-type RunUpdateFlowContract = Expect<Equal<
-  RunUpdateFlow,
-  ExpectedRunUpdateFlow
->>;
-type UpdateFlowDependenciesContract = Expect<Equal<
-  UpdateFlowDependencies,
-  ExpectedUpdateFlowDependencies
->>;
-type CreateUpdateFlowContract = Expect<Equal<
-  typeof createUpdateFlow,
-  (dependencies: ExpectedUpdateFlowDependencies) => ExpectedRunUpdateFlow
->>;
-type RunUpdateFlowValueContract = Expect<Equal<
-  typeof runUpdateFlow,
-  ExpectedRunUpdateFlow
->>;
-
 type CacheActivityContract = Expect<Equal<
   CacheActivity,
   ExpectedCacheActivity
@@ -1512,15 +1392,6 @@ export type TypeScriptMigrationContracts =
   | BasicAssistantModelIdValueContract
   | AssistantStoreValueContract
   | AssistantStreamCompatibilityContract
-  | GithubUpdateInfoContract
-  | GithubUpdateInstallResultContract
-  | GithubUpdateStatusPayloadContract
-  | RunUpdateFlowOptionsContract
-  | RunUpdateFlowResultContract
-  | RunUpdateFlowContract
-  | UpdateFlowDependenciesContract
-  | CreateUpdateFlowContract
-  | RunUpdateFlowValueContract
   | CacheActivityContract
   | CacheEntryContract
   | OverviewCacheEntryContract

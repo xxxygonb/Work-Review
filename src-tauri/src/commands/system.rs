@@ -382,6 +382,13 @@ pub async fn get_app_icon(
     get_app_icon_impl(&app_name, executable_path.as_deref()).await
 }
 
+pub(crate) async fn get_app_icon_inner(
+    app_name: String,
+    executable_path: Option<String>,
+) -> Result<String, AppError> {
+    get_app_icon_impl(&app_name, executable_path.as_deref()).await
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn normalize_macos_app_lookup_name(value: &str) -> String {
     let trimmed = value.trim().trim_end_matches(".app");

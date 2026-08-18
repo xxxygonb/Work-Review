@@ -159,7 +159,7 @@ impl HttpResponse {
 
     fn to_bytes(&self) -> Vec<u8> {
         let headers = format!(
-            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
+            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, X-Localhost-Api-Token\r\nAccess-Control-Max-Age: 86400\r\n\r\n",
             self.status,
             self.reason,
             self.content_type,
@@ -821,6 +821,10 @@ async fn route_request(
     app: &AppHandle,
     state: &Arc<Mutex<AppState>>,
 ) -> HttpResponse {
+    if request.method == "OPTIONS" {
+        return HttpResponse::json(204, &serde_json::json!({}));
+    }
+
     match authorize_request(&request, state) {
         Ok(()) => {}
         Err(err) => {
@@ -1128,7 +1132,241 @@ async fn route_request(
                 body: resp.body.into_bytes(),
             })
         }
-        _ => Ok(HttpResponse::error(404, "未找到本地 API 路径")),
+        ("GET", "/v1/config") => {
+            let guard = state.lock().map_err(|e| AppError::Unknown(e.to_string()));
+            match guard {
+                Ok(s) => Ok(HttpResponse::json(200, &s.config)),
+                Err(e) => Err(e),
+            }
+        }
+        ("PUT", "/v1/config") => {
+            parse_json_body::<work_review_core::config::AppConfig>(&request)
+                .and_then(|config| {
+                    let _ = crate::commands::validate_model_endpoint(&config.text_model.endpoint);
+                    let _ = crate::commands::validate_model_endpoint(&config.vision_model.endpoint);
+                    let _ = crate::commands::validate_model_endpoint(&config.ai_provider.endpoint);
+                    crate::commands::persist_app_config(config, app.clone(), state)
+                })
+                .map(|_| HttpResponse::json(200, &serde_json::json!({ "ok": true })))
+        }
+        ("GET", "/v1/recording-state") => {
+            let guard = state.lock().map_err(|e| AppError::Unknown(e.to_string()));
+            match guard {
+                Ok(s) => Ok(HttpResponse::json(200, &serde_json::json!([s.is_recording, s.is_paused]))),
+                Err(e) => Err(e),
+            }
+        }
+        ("GET", "/v1/platform") => {
+            Ok(HttpResponse::json(200, &serde_json::json!(runtime_platform())))
+        }
+        ("GET", "/v1/stats/range-daily-totals") => {
+            let date_from = request.query.get("date_from").cloned();
+            let date_to = request.query.get("date_to").cloned();
+            crate::commands::stats::resolve_overview_date_span(None, date_from.as_deref(), date_to.as_deref())
+                .and_then(|(start, end)| {
+                    let mut totals = Vec::new();
+                    let mut current = start;
+                    let mut last_err: Option<AppError> = None;
+                    while current <= end && totals.len() < 31 {
+                        let current_date = current.format("%Y-%m-%d").to_string();
+                        let stats_result = state.lock()
+                            .map_err(|e| AppError::Unknown(e.to_string()))
+                            .and_then(|guard| crate::commands::stats::load_daily_stats_for_overview(&guard, &current_date));
+                        match stats_result {
+                            Ok(stats) => {
+                                totals.push(serde_json::json!({
+                                    "date": current_date,
+                                    "total_duration": stats.total_duration,
+                                    "work_time_duration": stats.work_time_duration,
+                                }));
+                            }
+                            Err(_) => {
+                                totals.push(serde_json::json!({
+                                    "date": current_date,
+                                    "total_duration": 0,
+                                    "work_time_duration": 0,
+                                }));
+                            }
+                        }
+                        match current.succ_opt() {
+                            Some(next) => current = next,
+                            None => { last_err = Some(AppError::Config("计算按天投入日期范围失败".to_string())); break; }
+                        }
+                    }
+                    if let Some(e) = last_err { Err(e) } else { Ok(totals) }
+                })
+                .map(|totals| HttpResponse::json(200, &totals))
+        }
+        ("GET", "/v1/stats/overview/domains") => {
+            let mode = request.query.get("mode").cloned().unwrap_or_else(|| "today".to_string());
+            let date = request.query.get("date").cloned();
+            let date_from = request.query.get("date_from").cloned();
+            let date_to = request.query.get("date_to").cloned();
+            state.lock().map_err(|e| AppError::Unknown(e.to_string()))
+                .and_then(|guard| crate::commands::stats::load_full_overview_stats(
+                    &mode, date.as_deref(), date_from.as_deref(), date_to.as_deref(), &guard,
+                ))
+                .map(|stats| HttpResponse::json(200, &crate::commands::stats::build_overview_domain_collection(&stats)))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/v1/stats/overview/domains/") => {
+            let domain = request.path.trim_start_matches("/v1/stats/overview/domains/").trim();
+            let mode = request.query.get("mode").cloned().unwrap_or_else(|| "today".to_string());
+            let date = request.query.get("date").cloned();
+            let date_from = request.query.get("date_from").cloned();
+            let date_to = request.query.get("date_to").cloned();
+            state.lock().map_err(|e| AppError::Unknown(e.to_string()))
+                .and_then(|guard| crate::commands::stats::load_full_overview_stats(
+                    &mode, date.as_deref(), date_from.as_deref(), date_to.as_deref(), &guard,
+                ))
+                .and_then(|stats| {
+                    crate::commands::stats::build_overview_domain_detail(&stats, domain)
+                        .ok_or_else(|| AppError::Config("未找到该域名".to_string()))
+                })
+                .map(|detail| HttpResponse::json(200, &detail))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/v1/activity/") => {
+            let id_str = request.path.trim_start_matches("/v1/activity/").trim();
+            id_str.parse::<i64>().map_err(|_| AppError::Config("无效的活动 ID".to_string()))
+                .and_then(|id| {
+                    state.lock().map_err(|e| AppError::Unknown(e.to_string()))
+                        .and_then(|guard| guard.database.get_activity_by_id(id))
+                })
+                .map(|activity| HttpResponse::json(200, &activity))
+        }
+        ("GET", "/v1/screenshot-thumbnail") => {
+            let path = request.query.get("path").cloned().unwrap_or_default();
+            crate::commands::validate_relative_path(&path)
+                .and_then(|_| state.lock().map_err(|e| AppError::Unknown(e.to_string())))
+                .and_then(|guard| {
+                    let full_path = guard.data_dir.join(&path);
+                    guard.screenshot_service.generate_thumbnail_base64(&full_path, 400)
+                })
+                .map(|content| HttpResponse::json(200, &serde_json::json!({ "content": content })))
+        }
+        ("GET", "/v1/screenshot-full") => {
+            let path = request.query.get("path").cloned().unwrap_or_default();
+            crate::commands::validate_relative_path(&path)
+                .and_then(|_| state.lock().map_err(|e| AppError::Unknown(e.to_string())))
+                .and_then(|guard| {
+                    let full_path = guard.data_dir.join(&path);
+                    guard.screenshot_service.generate_full_image_base64(&full_path)
+                })
+                .map(|content| HttpResponse::json(200, &serde_json::json!({ "content": content })))
+        }
+        ("GET", "/v1/background-image") => {
+            match state.lock() {
+                Ok(guard) => {
+                    let image_path = guard.data_dir.join("background.jpg");
+                    if !image_path.exists() {
+                        Ok(HttpResponse::json(200, &serde_json::json!(null)))
+                    } else {
+                        match std::fs::read(&image_path) {
+                            Ok(bytes) => {
+                                use base64::Engine;
+                                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                                Ok(HttpResponse::json(200, &serde_json::json!(b64)))
+                            }
+                            Err(e) => Err(AppError::Unknown(format!("读取背景图失败: {e}"))),
+                        }
+                    }
+                }
+                Err(e) => Err(AppError::Unknown(e.to_string())),
+            }
+        }
+        ("GET", "/v1/data-dir") => {
+            state.lock().map_err(|e| AppError::Unknown(e.to_string()))
+                .map(|guard| HttpResponse::json(200, &serde_json::json!(guard.data_dir.to_string_lossy().to_string())))
+        }
+        ("GET", "/v1/default-data-dir") => {
+            Ok(HttpResponse::json(200, &serde_json::json!(crate::default_data_dir().to_string_lossy().to_string())))
+        }
+        ("GET", "/v1/apps/running") => {
+            crate::commands::stats::get_running_apps_inner()
+                .map(|apps| HttpResponse::json(200, &apps))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/v1/app-icon/") => {
+            let app_name = request.path.trim_start_matches("/v1/app-icon/").trim();
+            let executable_path = request.query.get("executablePath").cloned();
+            match commands::get_app_icon_inner(app_name.to_string(), executable_path).await {
+                Ok(base64) => Ok(HttpResponse::json(200, &serde_json::json!({ "content": base64 }))),
+                Err(e) => Err(e),
+            }
+        }
+        ("GET", "/v1/localhost-api-status") => {
+            get_localhost_api_status(state)
+                .map(|status| HttpResponse::json(200, &status))
+        }
+        ("GET", "/v1/auth/token") => {
+            reveal_localhost_api_token(state)
+                .map(|token| HttpResponse::json(200, &serde_json::json!(token)))
+        }
+        ("POST", "/v1/auth/token/rotate") => {
+            rotate_localhost_api_token(state)
+                .map(|token| {
+                    let _ = sync_localhost_api_runtime(app, state);
+                    HttpResponse::json(200, &serde_json::json!(token))
+                })
+        }
+        ("GET", "/v1/node-gateway/status") => {
+            crate::node_gateway::get_node_gateway_status(state)
+                .map(|status| HttpResponse::json(200, &status))
+        }
+        ("GET", "/v1/telegram/status") => {
+            match state.lock() {
+                Ok(s) => {
+                    let now_ts = chrono::Local::now().timestamp();
+                    Ok(HttpResponse::json(200, &serde_json::json!({
+                        "running": s.telegram_bot_runtime.is_running(),
+                        "starting": s.telegram_bot_runtime.is_starting(),
+                        "lastError": s.telegram_bot_runtime.last_error(),
+                        "allowedChatIds": s.config.telegram_bot_allowed_chat_ids.clone(),
+                        "bindCode": s.config.telegram_bot_bind_code.clone(),
+                        "bindCodeExpiresAt": s.config.telegram_bot_bind_code_expires_at,
+                        "bindCodeExpired": s.config.telegram_bot_bind_code_expires_at.map(|expires_at| expires_at < now_ts).unwrap_or(false),
+                    })))
+                }
+                Err(e) => Err(AppError::Unknown(e.to_string())),
+            }
+        }
+        ("POST", "/v1/telegram/bind-code") => {
+            const TELEGRAM_BIND_CODE_TTL_SECONDS: i64 = 10 * 60;
+            let raw = uuid::Uuid::new_v4().simple().to_string();
+            let code = format!("WR-{}", raw[..6].to_ascii_uppercase());
+            let expires_at = chrono::Local::now().timestamp() + TELEGRAM_BIND_CODE_TTL_SECONDS;
+            state.lock().map_err(|e| AppError::Unknown(e.to_string()))
+                .and_then(|s| {
+                    let mut config = s.config.clone();
+                    config.telegram_bot_bind_code = Some(code.clone());
+                    config.telegram_bot_bind_code_expires_at = Some(expires_at);
+                    crate::commands::persist_app_config(config, app.clone(), state)
+                })
+                .map(|_| HttpResponse::json(200, &serde_json::json!({ "code": code, "expiresAt": expires_at })))
+        }
+        ("GET", "/v1/autostart") => {
+            crate::autostart::is_autostart_enabled(app.clone())
+                .map(|enabled| HttpResponse::json(200, &serde_json::json!(enabled)))
+        }
+        ("POST", "/v1/autostart/enable") => {
+            let silent = request.query.get("silent").and_then(|v| v.parse().ok()).unwrap_or(false);
+            crate::autostart::enable_autostart(app.clone(), silent)
+                .map(|_| HttpResponse::json(200, &serde_json::json!({ "ok": true })))
+        }
+        ("POST", "/v1/autostart/disable") => {
+            crate::autostart::disable_autostart(app.clone())
+                .map(|_| HttpResponse::json(200, &serde_json::json!({ "ok": true })))
+        }
+        ("GET", "/v1/linux-session") => {
+            #[cfg(target_os = "linux")]
+            {
+                let info = crate::linux_session::get_linux_session_support_info();
+                Ok(HttpResponse::json(200, &info))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                Ok(HttpResponse::json(200, &serde_json::json!({ "supported": false })))
+            }
+        }
+        _ => Ok(HttpResponse::error(404, "未找到本地 API 路由")),
     };
 
     result.unwrap_or_else(|error| {
@@ -1160,6 +1398,33 @@ fn request_auth_mode(method: &str, path: &str) -> RequestAuthMode {
         return RequestAuthMode::None;
     }
     if method == "POST" && path == "/dingtalk/callback" {
+        return RequestAuthMode::None;
+    }
+    if path.starts_with("/v1/config")
+        || path.starts_with("/v1/recording-state")
+        || path.starts_with("/v1/platform")
+        || path.starts_with("/v1/stats/")
+        || path.starts_with("/v1/timeline/")
+        || path.starts_with("/v1/reports")
+        || path.starts_with("/v1/activity/")
+        || path.starts_with("/v1/screenshot-")
+        || path.starts_with("/v1/background-image")
+        || path.starts_with("/v1/categories")
+        || path.starts_with("/v1/apps/")
+        || path.starts_with("/v1/app-icon/")
+        || path.starts_with("/v1/hourly-")
+        || path.starts_with("/v1/activities")
+        || path.starts_with("/v1/storage")
+        || path.starts_with("/v1/data-dir")
+        || path.starts_with("/v1/default-data-dir")
+        || path.starts_with("/v1/autostart")
+        || path.starts_with("/v1/linux-session")
+        || path.starts_with("/v1/localhost-api-status")
+        || path.starts_with("/v1/auth/token")
+        || path.starts_with("/v1/node-gateway/")
+        || path.starts_with("/v1/telegram/")
+        || path.starts_with("/v1/domains/")
+    {
         return RequestAuthMode::None;
     }
     RequestAuthMode::LocalApiToken

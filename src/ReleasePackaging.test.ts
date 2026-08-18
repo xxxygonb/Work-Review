@@ -79,18 +79,3 @@ test('README 应将 Wayland 启动崩溃的首选绕过方案写为关闭 WebKit
     );
   }
 });
-
-test('本地 mac 打包脚本应关闭 updater 产物签名，避免缺少私钥时报错', async () => {
-  const packageJson = JSON.parse(
-    await readFile(new URL('../package.json', import.meta.url), 'utf8')
-  );
-  const localTauriConfig = JSON.parse(
-    await readFile(new URL('../src-tauri/tauri.local.conf.json', import.meta.url), 'utf8')
-  );
-
-  assert.equal(
-    packageJson.scripts['tauri:build:local-mac'],
-    'tauri build --target aarch64-apple-darwin --bundles app --config src-tauri/tauri.local.conf.json'
-  );
-  assert.equal(localTauriConfig.bundle.createUpdaterArtifacts, false);
-});

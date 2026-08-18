@@ -3,8 +3,7 @@
   "description": "permissions that were migrated from v1",
   "local": true,
   "windows": [
-    "main",
-    "avatar"
+    "main"
   ],
   "permissions": [
     "core:default",
@@ -76,9 +75,6 @@
     "dialog:default",
     "shell:default",
     "fs:default",
-    "process:allow-restart",
-    "updater:allow-check",
-    "updater:allow-download-and-install",
-    "updater:default"
+    "process:allow-restart"
   ]
 }

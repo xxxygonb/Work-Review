@@ -19,7 +19,6 @@ const MANAGED_DATA_ENTRIES: &[&str] = &[
     "screenshots",
     "ocr_logs",
     "background.jpg",
-    "update_settings.json",
 ];
 
 const LIVE_DATABASE_FILES: &[&str] = &["workreview.db", "workreview.db-shm", "workreview.db-wal"];

@@ -17,10 +17,9 @@ mod recording;
 mod report;
 mod semantic_memory;
 mod shared;
-mod stats;
+pub(crate) mod stats;
 mod system;
 mod timeline;
-mod updater;
 mod user_memory;
 
 // 所有 pub command + DTO（main.rs generate_handler 的 commands::xxx 不变）
@@ -38,7 +37,6 @@ pub use semantic_memory::*;
 pub use stats::*;
 pub use system::*;
 pub use timeline::*;
-pub use updater::*;
 pub use user_memory::*;
 
 // 被 main.rs / localhost_api / agent / bot 直接调用的 pub(crate) helper
@@ -46,6 +44,6 @@ pub use user_memory::*;
 pub(crate) use shared::{
     collect_privacy_filters, filter_activities_by_privacy, load_filtered_activities_in_range,
     merge_manual_followups_into_todos, parse_temporal_range, persist_app_config,
-    resolve_single_date,
+    resolve_single_date, validate_relative_path,
 };
 pub(crate) use system::apply_dock_visibility;

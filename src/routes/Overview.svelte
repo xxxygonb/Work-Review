@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { listen, type Event as TauriEvent } from '@tauri-apps/api/event';
   import StatsCard from '../lib/components/StatsCard.svelte';
   import AppUsageChart from '../lib/components/AppUsageChart.svelte';

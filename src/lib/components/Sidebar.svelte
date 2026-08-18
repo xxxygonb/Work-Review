@@ -1,7 +1,6 @@
 <script lang="ts">
   import { link, location } from 'svelte-spa-router';
-  import { invoke } from '@tauri-apps/api/core';
-  import { emitTo } from '@tauri-apps/api/event';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { createEventDispatcher } from 'svelte';
   import {
     getLocaleLabel,
@@ -38,9 +37,7 @@
     { path: '/', labelKey: 'sidebar.nav.overview', icon: 'home' },
     { path: '/timeline', labelKey: 'sidebar.nav.timeline', icon: 'timeline' },
     { path: '/report', labelKey: 'sidebar.nav.report', icon: 'report' },
-    { path: '/ask', labelKey: 'sidebar.nav.ask', icon: 'ask' },
     { path: '/settings', labelKey: 'sidebar.nav.settings', icon: 'settings' },
-    { path: '/about', labelKey: 'sidebar.nav.about', icon: 'info' },
   ];
 
   $: currentLocale = $locale;
@@ -50,9 +47,6 @@
   };
   const localeOptionsBase: LocaleOption[] = [
     { value: 'zh-CN', label: 'ZH', fullLabelKey: 'sidebar.localeNames.zhCN' },
-    { value: 'en', label: 'EN', fullLabelKey: 'sidebar.localeNames.en' },
-    { value: 'zh-TW', label: 'TW', fullLabelKey: 'sidebar.localeNames.zhTW' },
-    { value: 'ar', label: 'AR', fullLabelKey: 'sidebar.localeNames.ar' },
   ];
   $: localeOptions = localeOptionsBase.map((option) => ({
     ...option,
@@ -74,9 +68,6 @@
   function selectLocale(nextLocale: Locale): void {
     const normalizedLocale = setLocale(nextLocale);
     localeMenuOpen = false;
-    emitTo('avatar', 'locale-changed', normalizedLocale).catch((error) => {
-      console.warn('同步桌宠语言失败:', error);
-    });
     invoke('set_app_locale', { locale: normalizedLocale }).catch((error) => {
       console.warn('同步后端语言失败:', error);
     });

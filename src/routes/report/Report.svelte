@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
   import { open } from '@tauri-apps/plugin-shell';
   import { marked } from 'marked';

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { aiStore } from '$lib/stores/ai.ts';
   import type { AiTestStatus } from '$lib/stores/ai.ts';
   import { locale, t } from '$lib/i18n/index.ts';
@@ -210,88 +210,54 @@
   const providerLabels: Record<ProviderId, Partial<Record<Locale, ProviderLabel>>> = {
     ollama: {
       'zh-CN': { name: 'Ollama (本地)', description: '本机运行开源模型，数据不出本机' },
-      en: { name: 'Ollama (Local)', description: 'Runs open models on your device, data stays local' },
-      'zh-TW': { name: 'Ollama（本機）', description: '在本機執行開源模型，資料不會離開本機' },
     },
     openai: {
       'zh-CN': { name: 'OpenAI / 兼容 API', description: '支持官方及兼容端点（Azure、Cloudflare 等）' },
-      en: { name: 'OpenAI / Compatible', description: 'Official OpenAI and compatible endpoints (Azure, Cloudflare, etc.)' },
-      'zh-TW': { name: 'OpenAI / 相容 API', description: '支援官方與相容端點（Azure、Cloudflare 等）' },
     },
     siliconflow: {
       'zh-CN': { name: '硅基流动 SiliconFlow', description: '国内高性价比 API' },
-      en: { name: 'SiliconFlow', description: 'Cost-effective domestic API' },
-      'zh-TW': { name: '矽基流動 SiliconFlow', description: '高性價比 API' },
     },
     deepseek: {
       'zh-CN': { name: 'DeepSeek', description: '国产开源模型，兼容 OpenAI 格式' },
-      en: { name: 'DeepSeek', description: 'Open-source model with OpenAI-compatible format' },
-      'zh-TW': { name: 'DeepSeek', description: '開源模型，支援 OpenAI 相容格式' },
     },
     qwen: {
       'zh-CN': { name: '通义千问 Qwen', description: '阿里云通义大模型' },
-      en: { name: 'Qwen', description: 'Alibaba Tongyi models' },
-      'zh-TW': { name: '通義千問 Qwen', description: '阿里雲通義模型' },
     },
     zhipu: {
       'zh-CN': { name: '智谱 ChatGLM', description: '智谱 AI 大模型' },
-      en: { name: 'Zhipu ChatGLM', description: 'Large language models from Zhipu AI' },
-      'zh-TW': { name: '智譜 ChatGLM', description: '智譜 AI 大模型' },
     },
     moonshot: {
       'zh-CN': { name: '月之暗面 Kimi', description: '擅长长文本' },
-      en: { name: 'Moonshot Kimi', description: 'Optimized for long-context tasks' },
-      'zh-TW': { name: '月之暗面 Kimi', description: '擅長長文本' },
     },
     doubao: {
       'zh-CN': { name: '火山引擎 豆包', description: '字节跳动大模型' },
-      en: { name: 'Doubao', description: 'Models from Volcano Engine / ByteDance' },
-      'zh-TW': { name: '火山引擎 豆包', description: '字節跳動大模型' },
     },
     openrouter: {
       'zh-CN': { name: 'OpenRouter', description: '多模型聚合网关，一个 Key 调百家模型' },
-      en: { name: 'OpenRouter', description: 'One key for hundreds of models' },
-      'zh-TW': { name: 'OpenRouter', description: '多模型聚合閘道，一個 Key 調百家模型' },
     },
     groq: {
       'zh-CN': { name: 'Groq', description: '超高速推理' },
-      en: { name: 'Groq', description: 'Ultra-fast inference' },
-      'zh-TW': { name: 'Groq', description: '超高速推理' },
     },
     xai: {
       'zh-CN': { name: 'xAI Grok', description: 'xAI 的 Grok 系列模型' },
-      en: { name: 'xAI Grok', description: 'Grok models by xAI' },
-      'zh-TW': { name: 'xAI Grok', description: 'xAI 的 Grok 系列模型' },
     },
     mistral: {
       'zh-CN': { name: 'Mistral', description: 'Mistral AI 系列模型' },
-      en: { name: 'Mistral', description: 'Models by Mistral AI' },
-      'zh-TW': { name: 'Mistral', description: 'Mistral AI 系列模型' },
     },
     lmstudio: {
       'zh-CN': { name: 'LM Studio (本地)', description: '本机运行，数据不出电脑' },
-      en: { name: 'LM Studio (Local)', description: 'Runs locally, data stays on device' },
-      'zh-TW': { name: 'LM Studio（本機）', description: '本機執行，資料不出電腦' },
     },
     custom: {
       'zh-CN': { name: '自定义接口', description: '任何 OpenAI 兼容接口' },
-      en: { name: 'Custom endpoint', description: 'Any OpenAI-compatible API' },
-      'zh-TW': { name: '自訂介面', description: '任何 OpenAI 相容介面' },
     },
     minimax: {
       'zh-CN': { name: '稀宇科技 MiniMax', description: 'MiniMax 文本模型' },
-      en: { name: 'MiniMax', description: 'MiniMax text models' },
-      'zh-TW': { name: '稀宇科技 MiniMax', description: 'MiniMax 文字模型' },
     },
     gemini: {
       'zh-CN': { name: 'Google Gemini', description: 'Google Gemini 系列模型' },
-      en: { name: 'Google Gemini', description: 'Google Gemini family models' },
-      'zh-TW': { name: 'Google Gemini', description: 'Google Gemini 系列模型' },
     },
     claude: {
       'zh-CN': { name: 'Anthropic Claude', description: 'Anthropic Claude 系列模型' },
-      en: { name: 'Anthropic Claude', description: 'Anthropic Claude family models' },
-      'zh-TW': { name: 'Anthropic Claude', description: 'Anthropic Claude 系列模型' },
     },
   };
 
@@ -493,7 +459,7 @@
   }
 
   function shouldHideRawMessage(message: string): boolean {
-    return currentLocale === 'en' && /[一-鿿]/.test(message);
+    return false;
   }
 
   function parseTestErrorMessage(raw: unknown): string | null {

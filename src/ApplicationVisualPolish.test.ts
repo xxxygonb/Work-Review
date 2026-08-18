@@ -7,7 +7,6 @@ const typographySourceUrls = [
   cssUrl,
   new URL('./routes/timeline/Timeline.svelte', import.meta.url),
   new URL('./routes/settings/components/SettingsSystem.svelte', import.meta.url),
-  new URL('./routes/about/About.svelte', import.meta.url),
   new URL('./lib/components/ActivityHourlyChart.svelte', import.meta.url),
   new URL('./lib/components/ConfirmDialog.svelte', import.meta.url),
   new URL('./lib/components/StatsCard.svelte', import.meta.url),
@@ -153,11 +152,8 @@ test('深色 A 风格应通过共享 token 控制卡片边界', async () => {
   assert.doesNotMatch(sharedDarkSurfaces, /border-color:\s*rgba\(/);
 });
 
-test('助手与关于页应将操作区接入操作轴，并让主体继续使用阅读轴', async () => {
-  const [askSource, aboutSource] = await Promise.all([
-    readFile(new URL('./routes/ask/Ask.svelte', import.meta.url), 'utf8'),
-    readFile(new URL('./routes/about/About.svelte', import.meta.url), 'utf8'),
-  ]);
+test('助手页应将操作区接入操作轴，并让主体继续使用阅读轴', async () => {
+  const askSource = await readFile(new URL('./routes/ask/Ask.svelte', import.meta.url), 'utf8');
 
   assert.match(askSource, /page-header page-axis-operation/);
   assert.match(askSource, /page-title-group/);
@@ -165,6 +161,4 @@ test('助手与关于页应将操作区接入操作轴，并让主体继续使�
   assert.doesNotMatch(askSource, /ask-context-strip/);
   assert.match(askSource, /ask-thread-shell[^"]*page-axis-reading/);
   assert.match(askSource, /ask-composer-shell[^"]*page-axis-reading/);
-  assert.match(aboutSource, /page-header page-axis-operation/);
-  assert.match(aboutSource, /about-minimal-shell[^"]*page-axis-reading/);
 });

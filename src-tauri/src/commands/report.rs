@@ -726,6 +726,15 @@ pub struct ExportReportsRangeResult {
     pub count: usize,
 }
 
+pub(crate) fn generate_weekly_review_inner(
+    _date_from: Option<String>,
+    _date_to: Option<String>,
+    _limit: Option<usize>,
+    _state: &std::sync::Arc<std::sync::Mutex<crate::AppState>>,
+) -> Result<work_review_core::work_intelligence::WeeklyReviewResult, AppError> {
+    Err(AppError::Config("周报功能已移除".to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -252,7 +252,7 @@ fn collect_overview_domain_sources(
     sources
 }
 
-fn build_overview_domain_collection(stats: &DailyStats) -> OverviewDomainCollection {
+pub(crate) fn build_overview_domain_collection(stats: &DailyStats) -> OverviewDomainCollection {
     let domains = stats
         .domain_usage
         .iter()
@@ -278,7 +278,7 @@ fn build_overview_domain_collection(stats: &DailyStats) -> OverviewDomainCollect
     }
 }
 
-fn build_overview_domain_detail(stats: &DailyStats, domain: &str) -> Option<OverviewDomainDetail> {
+pub(crate) fn build_overview_domain_detail(stats: &DailyStats, domain: &str) -> Option<OverviewDomainDetail> {
     let target = domain.trim().trim_end_matches('.');
     let domain = stats.domain_usage.iter().find(|item| {
         item.domain
@@ -513,7 +513,7 @@ fn resolve_overview_anchor_date(date: Option<&str>) -> Result<chrono::NaiveDate,
     }
 }
 
-fn resolve_overview_date_span(
+pub(crate) fn resolve_overview_date_span(
     date: Option<&str>,
     date_from: Option<&str>,
     date_to: Option<&str>,
@@ -566,7 +566,7 @@ pub async fn get_today_stats(
 }
 
 /// 加载未做首页裁剪的完整概览统计，供首页、完整域名列表与单域名详情复用。
-fn load_full_overview_stats(
+pub(crate) fn load_full_overview_stats(
     mode: &str,
     date: Option<&str>,
     date_from: Option<&str>,
@@ -807,6 +807,10 @@ pub async fn get_recent_apps(
 /// 获取当前运行的应用列表
 #[tauri::command]
 pub async fn get_running_apps() -> Result<Vec<String>, AppError> {
+    get_running_apps_impl()
+}
+
+pub(crate) fn get_running_apps_inner() -> Result<Vec<String>, AppError> {
     get_running_apps_impl()
 }
 

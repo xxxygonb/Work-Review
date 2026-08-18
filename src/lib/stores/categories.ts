@@ -1,5 +1,5 @@
 import { writable, type Readable, type Writable } from 'svelte/store';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '$lib/utils/safeInvoke.ts';
 import { translateCategoryLabel, translateSemanticCategoryLabel } from '$lib/i18n/index.ts';
 
 /** Rust `CategoryInfo` 的前端序列化结构。 */

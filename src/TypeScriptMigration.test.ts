@@ -37,7 +37,6 @@ const migratedModules = [
   'main',
   'categories',
   'assistant',
-  'updater',
   'cache',
   'iconCache',
 ];
@@ -68,7 +67,6 @@ const typedContractModules = [
   'lib/stores/ai',
   'lib/stores/categories',
   'lib/stores/assistant',
-  'lib/utils/updater',
   'lib/stores/cache',
   'lib/stores/iconCache',
   'lib/i18n/index',
@@ -416,11 +414,6 @@ test('助手 Store 应迁移到 TypeScript', async () => {
   await access(projectFile('src/AssistantStreaming.test.ts'));
 });
 
-test('更新流程应迁移到 TypeScript', async () => {
-  await assertMigratedToTypeScript('src/lib/utils/updater');
-  await access(projectFile('src/lib/utils/updater.test.ts'));
-});
-
 test('共享页面缓存 Store 应迁移到 TypeScript', async () => {
   await assertMigratedToTypeScript('src/lib/stores/cache');
   await access(projectFile('src/lib/stores/cache.test.ts'));
@@ -655,9 +648,6 @@ test('本地过程文件与可再生成产物应被 Git 忽略', async () => {
   assert.match(gitignore, /^\/src-tauri\/gen\/schemas\/$/m);
   assert.match(gitignore, /^\/all-artifacts\/$/m);
   assert.match(gitignore, /^\/release_notes\.md$/m);
-  assert.match(gitignore, /^\/updater\.json$/m);
-  assert.match(gitignore, /^\/updater-ghproxy\.json$/m);
-  assert.match(gitignore, /^\/updater-ghp\.json$/m);
   assert.match(gitignore, /^\*\.tsbuildinfo$/m);
   assert.match(gitignore, /^\/plan\.md$/m);
 });

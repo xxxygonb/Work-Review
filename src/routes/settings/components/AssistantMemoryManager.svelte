@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
 
   type MemoryType = 'preference' | 'workflow' | 'profile' | 'goal' | 'project' | 'constraint';
   type RecallPolicy = 'always' | 'relevant' | 'manual';

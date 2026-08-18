@@ -8,7 +8,7 @@ export type AvatarMode =
   | 'generating'
   | 'slacking';
 
-export type AvatarBubbleLocale = 'zh-CN' | 'zh-TW' | 'en' | 'ar';
+export type AvatarBubbleLocale = 'zh-CN';
 export type AvatarPersona = 'companion' | 'assistant' | 'coach';
 
 export interface AvatarModeMeta {
@@ -306,159 +306,61 @@ const STATE_BUBBLES: Record<
   AvatarMode,
   Partial<Record<AvatarBubbleLocale, AvatarStateBubble>>
 > = {
-  idle: {
-    'zh-CN': { message: '待机中', tone: 'info', duration: 1600 },
-    'zh-TW': { message: '待機中', tone: 'info', duration: 1600 },
-    en: { message: 'Idle', tone: 'info', duration: 1600 },
-  },
-  working: {
-    'zh-CN': { message: '办公中', tone: 'info', duration: 1800 },
-    'zh-TW': { message: '工作中', tone: 'info', duration: 1800 },
-    en: { message: 'Working', tone: 'info', duration: 1800 },
-  },
-  reading: {
-    'zh-CN': { message: '阅读中', tone: 'info', duration: 1800 },
-    'zh-TW': { message: '閱讀中', tone: 'info', duration: 1800 },
-    en: { message: 'Reading', tone: 'info', duration: 1800 },
-  },
-  meeting: {
-    'zh-CN': { message: '开会中', tone: 'info', duration: 1800 },
-    'zh-TW': { message: '開會中', tone: 'info', duration: 1800 },
-    en: { message: 'Meeting', tone: 'info', duration: 1800 },
-  },
-  music: {
-    'zh-CN': { message: '听歌中', tone: 'info', duration: 1800 },
-    'zh-TW': { message: '聽歌中', tone: 'info', duration: 1800 },
-    en: { message: 'Music', tone: 'info', duration: 1800 },
-  },
-  video: {
-    'zh-CN': { message: '视频中', tone: 'info', duration: 1800 },
-    'zh-TW': { message: '影片中', tone: 'info', duration: 1800 },
-    en: { message: 'Video', tone: 'info', duration: 1800 },
-  },
-  generating: {
-    'zh-CN': { message: '生成中', tone: 'info', duration: 2000 },
-    'zh-TW': { message: '生成中', tone: 'info', duration: 2000 },
-    en: { message: 'Generating', tone: 'info', duration: 2000 },
-  },
-  slacking: {
-    'zh-CN': { message: '摸鱼中', tone: 'info', duration: 1800 },
-    'zh-TW': { message: '摸魚中', tone: 'info', duration: 1800 },
-    en: { message: 'On break', tone: 'info', duration: 1800 },
-  },
+  idle: { 'zh-CN': { message: '待机中', tone: 'info', duration: 1600 } },
+  working: { 'zh-CN': { message: '办公中', tone: 'info', duration: 1800 } },
+  reading: { 'zh-CN': { message: '阅读中', tone: 'info', duration: 1800 } },
+  meeting: { 'zh-CN': { message: '开会中', tone: 'info', duration: 1800 } },
+  music: { 'zh-CN': { message: '听歌中', tone: 'info', duration: 1800 } },
+  video: { 'zh-CN': { message: '视频中', tone: 'info', duration: 1800 } },
+  generating: { 'zh-CN': { message: '生成中', tone: 'info', duration: 2000 } },
+  slacking: { 'zh-CN': { message: '摸鱼中', tone: 'info', duration: 1800 } },
 };
 
 const CONTEXT_BUBBLE_MESSAGES: Record<string, LocalizedBubbleMessages> = {
   编码中: {
-    'zh-CN': '编码中',
-    'zh-TW': '編碼中',
-    en: 'Coding',
-  },
+    'zh-CN': '编码中',  },
   写作中: {
-    'zh-CN': '写作中',
-    'zh-TW': '寫作中',
-    en: 'Writing',
-  },
+    'zh-CN': '写作中',  },
   规划中: {
-    'zh-CN': '规划中',
-    'zh-TW': '規劃中',
-    en: 'Planning',
-  },
+    'zh-CN': '规划中',  },
   排期中: {
-    'zh-CN': '排期中',
-    'zh-TW': '排期中',
-    en: 'Scheduling',
-  },
+    'zh-CN': '排期中',  },
   拆解中: {
-    'zh-CN': '拆解中',
-    'zh-TW': '拆解中',
-    en: 'Breaking Down',
-  },
+    'zh-CN': '拆解中',  },
   沟通中: {
-    'zh-CN': '沟通中',
-    'zh-TW': '溝通中',
-    en: 'Discussing',
-  },
+    'zh-CN': '沟通中',  },
   创作中: {
-    'zh-CN': '创作中',
-    'zh-TW': '創作中',
-    en: 'Creating',
-  },
+    'zh-CN': '创作中',  },
   总结中: {
-    'zh-CN': '总结中',
-    'zh-TW': '總結中',
-    en: 'Summarizing',
-  },
+    'zh-CN': '总结中',  },
   方案中: {
-    'zh-CN': '方案中',
-    'zh-TW': '方案中',
-    en: 'Drafting',
-  },
+    'zh-CN': '方案中',  },
   判断中: {
-    'zh-CN': '判断中',
-    'zh-TW': '判斷中',
-    en: 'Assessing',
-  },
+    'zh-CN': '判断中',  },
   文档中: {
-    'zh-CN': '文档中',
-    'zh-TW': '文件中',
-    en: 'Docs',
-  },
+    'zh-CN': '文档中',  },
   调研中: {
-    'zh-CN': '调研中',
-    'zh-TW': '調研中',
-    en: 'Researching',
-  },
+    'zh-CN': '调研中',  },
   休息中: {
-    'zh-CN': '休息中',
-    'zh-TW': '休息中',
-    en: 'Resting',
-  },
+    'zh-CN': '休息中',  },
   开会中: {
-    'zh-CN': '开会中',
-    'zh-TW': '開會中',
-    en: 'Meeting',
-  },
+    'zh-CN': '开会中',  },
   演示中: {
-    'zh-CN': '演示中',
-    'zh-TW': '演示中',
-    en: 'Presenting',
-  },
+    'zh-CN': '演示中',  },
   通话中: {
-    'zh-CN': '通话中',
-    'zh-TW': '通話中',
-    en: 'On a Call',
-  },
+    'zh-CN': '通话中',  },
   听歌中: {
-    'zh-CN': '听歌中',
-    'zh-TW': '聽歌中',
-    en: 'Music',
-  },
+    'zh-CN': '听歌中',  },
   播客中: {
-    'zh-CN': '播客中',
-    'zh-TW': '播客中',
-    en: 'Podcast',
-  },
+    'zh-CN': '播客中',  },
   视频中: {
-    'zh-CN': '视频中',
-    'zh-TW': '影片中',
-    en: 'Video',
-  },
+    'zh-CN': '视频中',  },
   学习中: {
-    'zh-CN': '学习中',
-    'zh-TW': '學習中',
-    en: 'Learning',
-  },
+    'zh-CN': '学习中',  },
   直播中: {
-    'zh-CN': '直播中',
-    'zh-TW': '直播中',
-    en: 'Live Stream',
-  },
+    'zh-CN': '直播中',  },
   生成中: {
-    'zh-CN': '生成中',
-    'zh-TW': '生成中',
-    en: 'Generating',
-  },
+    'zh-CN': '生成中',  },
 };
 
 const PERSONA_MODE_BUBBLES: Partial<Record<
@@ -466,20 +368,20 @@ const PERSONA_MODE_BUBBLES: Partial<Record<
   Partial<Record<AvatarMode, LocalizedBubbleMessages>>
 >> = {
   companion: {
-    idle: { 'zh-CN': '先歇一会', 'zh-TW': '先休息一下', en: 'Take a breather' },
-    working: { 'zh-CN': '陪你推进', 'zh-TW': '陪你推進', en: 'I am with you' },
-    reading: { 'zh-CN': '一起看看', 'zh-TW': '一起看看', en: 'Let us read' },
-    meeting: { 'zh-CN': '先听你聊', 'zh-TW': '先聽你聊', en: 'I am listening' },
-    generating: { 'zh-CN': '我在整理', 'zh-TW': '我在整理', en: 'I am on it' },
-    slacking: { 'zh-CN': '放松一下', 'zh-TW': '放鬆一下', en: 'Take it easy' },
+    idle: { 'zh-CN': '先歇一会' },
+    working: { 'zh-CN': '陪你推进' },
+    reading: { 'zh-CN': '一起看看' },
+    meeting: { 'zh-CN': '先听你聊' },
+    generating: { 'zh-CN': '我在整理' },
+    slacking: { 'zh-CN': '放松一下' },
   },
   coach: {
-    idle: { 'zh-CN': '先恢复状态', 'zh-TW': '先恢復狀態', en: 'Reset first' },
-    working: { 'zh-CN': '继续推进', 'zh-TW': '繼續推進', en: 'Keep moving' },
-    reading: { 'zh-CN': '把要点看完', 'zh-TW': '把重點看完', en: 'Finish the key points' },
-    meeting: { 'zh-CN': '抓住结论', 'zh-TW': '抓住結論', en: 'Catch the decision' },
-    generating: { 'zh-CN': '马上出结果', 'zh-TW': '馬上出結果', en: 'Result incoming' },
-    slacking: { 'zh-CN': '休息后再冲', 'zh-TW': '休息後再衝', en: 'Break, then sprint' },
+    idle: { 'zh-CN': '先恢复状态' },
+    working: { 'zh-CN': '继续推进' },
+    reading: { 'zh-CN': '把要点看完' },
+    meeting: { 'zh-CN': '抓住结论' },
+    generating: { 'zh-CN': '马上出结果' },
+    slacking: { 'zh-CN': '休息后再冲' },
   },
 };
 
@@ -488,16 +390,16 @@ const PERSONA_CONTEXT_BUBBLES: Partial<Record<
   Record<string, LocalizedBubbleMessages>
 >> = {
   companion: {
-    编码中: { 'zh-CN': '陪你编码', 'zh-TW': '陪你寫碼', en: 'Coding together' },
-    写作中: { 'zh-CN': '陪你写完', 'zh-TW': '陪你寫完', en: 'Writing together' },
-    调研中: { 'zh-CN': '陪你查一查', 'zh-TW': '陪你查一查', en: 'Researching with you' },
-    开会中: { 'zh-CN': '我先陪你听', 'zh-TW': '我先陪你聽', en: 'Listening with you' },
+    编码中: { 'zh-CN': '陪你编码' },
+    写作中: { 'zh-CN': '陪你写完' },
+    调研中: { 'zh-CN': '陪你查一查' },
+    开会中: { 'zh-CN': '我先陪你听' },
   },
   coach: {
-    编码中: { 'zh-CN': '先把这段写完', 'zh-TW': '先把這段寫完', en: 'Finish this block' },
-    写作中: { 'zh-CN': '先把这段收住', 'zh-TW': '先把這段收住', en: 'Close this section' },
-    调研中: { 'zh-CN': '先拿到结论', 'zh-TW': '先拿到結論', en: 'Get the answer first' },
-    开会中: { 'zh-CN': '先抓重点', 'zh-TW': '先抓重點', en: 'Catch the key point' },
+    编码中: { 'zh-CN': '先把这段写完' },
+    写作中: { 'zh-CN': '先把这段收住' },
+    调研中: { 'zh-CN': '先拿到结论' },
+    开会中: { 'zh-CN': '先抓重点' },
   },
 };
 

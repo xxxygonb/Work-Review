@@ -4203,7 +4203,7 @@ async fn main() {
 
     // 构建 Tauri 应用
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        // [本地化改造] tauri_plugin_updater 已移除
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -4308,60 +4308,16 @@ async fn main() {
             let app_handle = app.handle().clone();
             let screenshot_app_handle = app.handle().clone();
 
-            let (
-                avatar_enabled,
-                avatar_scale,
-                avatar_body_hidden,
-                avatar_position,
-                avatar_state,
-                config_load_status,
-            ) = {
-                let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
-                (
-                    state_guard.config.avatar_enabled,
-                    state_guard.config.avatar_scale,
-                    state_guard.config.avatar_body_hidden,
-                    state_guard.config.avatar_x.zip(state_guard.config.avatar_y),
-                    state_guard.avatar_state.clone(),
-                    state_guard.config_load_status,
-                )
-            };
-
-            if let Err(e) = avatar_engine::sync_avatar_window(
-                app.handle(),
-                avatar_enabled,
-                avatar_scale,
-                avatar_position,
-                false,
-                avatar_body_hidden,
-            ) {
-                log::warn!("初始化桌宠窗口失败: {e}");
-            } else if avatar_enabled {
-                avatar_engine::emit_avatar_state(app.handle(), &avatar_state);
-            }
-
-            // 初始化智能穿透运行时 flag（从启动 config，供 input bridge 轮询无锁读）。
-            // 配置损坏时不得注册全局键鼠监听，以免故障安全启动仍采集输入事件。
-            if should_initialize_avatar_input(config_load_status) {
-                if let Ok(s) = state.inner().lock() {
-                    avatar_input::set_avatar_enabled_flag(s.config.avatar_enabled);
-                    avatar_input::set_avatar_click_through_flag(s.config.avatar_click_through);
-                }
-                avatar_input::start_avatar_input_monitor(app.handle());
-                avatar_input::spawn_avatar_input_monitor_retry(app.handle().clone());
-                avatar_input::spawn_avatar_input_bridge(app.handle().clone());
-            } else {
-                avatar_input::set_avatar_enabled_flag(false);
-                avatar_input::set_avatar_click_through_flag(false);
-                log::warn!("配置损坏，已跳过全局键鼠监听初始化");
-            }
+            // [本地化改造] 桌宠功能已移除：强制 avatar_enabled = false，跳过全部初始化
+            let avatar_enabled = false;
+            let _avatar_state = avatar_engine::default_avatar_state();
+            avatar_input::set_avatar_enabled_flag(false);
+            avatar_input::set_avatar_click_through_flag(false);
 
             if let Err(e) = localhost_api::sync_localhost_api_runtime(app.handle(), state.inner()) {
                 log::warn!("初始化本地 API 失败: {e}");
             }
-            if let Err(e) = telegram_bot::sync_telegram_bot_runtime(state.inner()) {
-                log::warn!("初始化 Telegram Bot 失败: {e}");
-            }
+            // [本地化改造] Telegram Bot 已移除
 
             // 创建 Tauri v2 系统托盘
             let tray_locale = state
@@ -4385,11 +4341,12 @@ async fn main() {
             )
             .checked(false)
             .build(app)?;
+            // [本地化改造] 桌宠菜单项已移除
             let avatar_toggle = CheckMenuItemBuilder::with_id(
                 TRAY_MENU_AVATAR_TOGGLE_ID,
                 tray_label("avatar", &tray_locale),
             )
-            .checked(avatar_enabled)
+            .checked(false)
             .build(app)?;
             let quit =
                 MenuItemBuilder::with_id(TRAY_MENU_QUIT_ID, tray_label("quit", &tray_locale))
@@ -4400,7 +4357,6 @@ async fn main() {
                 .separator()
                 .item(&recording_toggle)
                 .item(&lightweight_mode)
-                .item(&avatar_toggle)
                 .separator()
                 .item(&quit)
                 .build()?;
@@ -4477,19 +4433,7 @@ async fn main() {
                         }
                     }
                     TRAY_MENU_AVATAR_TOGGLE_ID => {
-                        let next_config = {
-                            let state = state_for_tray.lock().unwrap_or_else(|e| e.into_inner());
-                            let mut config = state.config.clone();
-                            config.avatar_enabled = !config.avatar_enabled;
-                            config
-                        };
-
-                        if let Err(e) =
-                            commands::persist_app_config(next_config, app.clone(), &state_for_tray)
-                        {
-                            log::warn!("从托盘切换桌宠失败: {e}");
-                            refresh_tray_menu(app);
-                        }
+                        // [本地化改造] 桌宠功能已移除，忽略切换
                     }
                     _ => {}
                 })
@@ -4514,19 +4458,14 @@ async fn main() {
                 background_screenshot_task(state_clone, screenshot_app_handle).await;
             });
 
-            tauri::async_runtime::spawn(async move {
-                background_avatar_task(state_clone3, app_handle).await;
-            });
+            // [本地化改造] 桌宠后台任务已移除
 
             // 启动小时摘要生成任务（每小时检查一次）
             tauri::async_runtime::spawn(async move {
                 hourly_summary_task(state_clone2).await;
             });
 
-            // 启动远程截图补传任务（每 10 分钟扫描一次，兜底断网期间漏传的截图）
-            tauri::async_runtime::spawn(async move {
-                remote_upload_backfill_task(state_clone4).await;
-            });
+            // [本地化改造] 远程截图补传任务已移除
 
             // 启动存储清理周期任务（每 6 小时，保留策略不再只在启动时生效一次）
             tauri::async_runtime::spawn(async move {
@@ -4577,10 +4516,7 @@ async fn main() {
             commands::rotate_localhost_api_token,
             commands::get_config,
             commands::save_config,
-            commands::get_update_settings,
-            commands::save_update_settings,
-            commands::should_check_updates,
-            commands::update_last_check_time,
+
             commands::pause_recording,
             commands::resume_recording,
             commands::get_recording_state,
@@ -4596,9 +4532,7 @@ async fn main() {
             commands::install_gnome_avatar_extension,
             commands::change_data_dir,
             commands::cleanup_old_data_dir,
-            commands::check_github_update,
-            commands::download_and_install_github_update,
-            commands::quit_app_for_update,
+
             commands::open_data_dir,
             commands::get_screenshot_thumbnail,
             commands::get_screenshot_full,

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { formatDurationLocalized, locale, t } from '$lib/i18n/index.ts';
   import CollapsibleSection from '../../../lib/components/CollapsibleSection.svelte';
 
@@ -431,16 +431,7 @@
       </label>
     </CollapsibleSection>
 
-    <!-- AI 工作记忆 -->
-    <CollapsibleSection title={t('settingsGeneral.memoryTitle')} storageKey="settings.general.memory">
-      <label class="flex items-center justify-between mt-3 cursor-pointer">
-        <div>
-          <span class="settings-text text-sm">{t('settingsGeneral.memoryEnabled')}</span>
-          <p class="settings-muted mt-0.5">{t('settingsGeneral.memoryHint')}</p>
-        </div>
-        <input type="checkbox" bind:checked={config.memory_enabled} on:change={handleChange} class="accent-primary-500" />
-      </label>
-    </CollapsibleSection>
+    <!-- [本地化改造] AI 工作记忆设置已移除 -->
     <div class="settings-block pt-4 border-t border-slate-200 dark:border-[#30363d]">
       <div class="flex flex-wrap items-center gap-3">
         <span class="settings-text">{t('settingsGeneral.reportAutoGenerateTime')}</span>

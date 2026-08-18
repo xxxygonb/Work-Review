@@ -5,14 +5,13 @@
   import Sidebar from './lib/components/Sidebar.svelte';
   import Toast from './lib/components/Toast.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from './lib/utils/safeInvoke.ts';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { cache, getLocalDate } from './lib/stores/cache.ts';
   import { recordingStore } from './lib/stores/recording.ts';
   import { applyLocaleToDocument, initializeLocale, locale, t } from '$lib/i18n/index.ts';
   import { preloadAppIcons, type AppIconInvoke } from './lib/stores/iconCache.ts';
-  import { runUpdateFlow } from './lib/utils/updater.ts';
   import { isTimelineActivity } from './routes/timeline/timelineData.ts';
   import { timelineGateway } from './routes/timeline/timelineGateway.ts';
 
@@ -233,14 +232,8 @@
 
   const appWindow = getSafeCurrentWebviewWindow();
   const currentWindowLabel = appWindow.label;
-  const isAvatarWindow = currentWindowLabel === 'avatar';
-  let AvatarWindowComponent: ComponentType | null = null;
-
-  if (isAvatarWindow) {
-    import('./routes/avatar/AvatarWindow.svelte').then((module) => {
-      AvatarWindowComponent = module.default;
-    });
-  }
+  // [本地化改造] 桌宠窗口已移除
+  const isAvatarWindow = false;
 
   // 視窗拖拽（Linux WebKitGTK 不支援 -webkit-app-region: drag，改用 Tauri API）
   let lastDragClick = 0;
@@ -340,9 +333,7 @@
     '/timeline/summary/:date': wrap({ asyncComponent: () => import('./routes/timeline/Summary.svelte') }),
     '/timeline/summary': wrap({ asyncComponent: () => import('./routes/timeline/Summary.svelte') }),
     '/report': wrap({ asyncComponent: () => import('./routes/report/Report.svelte') }),
-    '/ask': wrap({ asyncComponent: () => import('./routes/ask/Ask.svelte') }),
     '/settings': wrap({ asyncComponent: () => import('./routes/settings/Settings.svelte') }),
-    '/about': wrap({ asyncComponent: () => import('./routes/about/About.svelte') }),
   };
 
   let theme: Theme = 'system';
@@ -617,30 +608,7 @@
       if (disposed) { try { if (unlistenConfigChanged) unlistenConfigChanged(); } catch {} return; }
       pendingCleanup.push(unlistenConfigChanged);
 
-      const unlistenAvatarTimeline = await safeListen(
-        'avatar-open-timeline',
-        isAvatarTimelinePayload,
-        async (payload) => {
-          const nextDate = typeof payload.date === 'string' ? payload.date.trim() : '';
-
-          try {
-            await push('/timeline');
-            if (nextDate) {
-              window.history.replaceState(
-                window.history.state,
-                '',
-                `/timeline?date=${encodeURIComponent(nextDate)}`
-              );
-            }
-            await tick();
-            window.dispatchEvent(new CustomEvent('timeline-focus-date', { detail: payload }));
-          } catch (e) {
-            console.error('桌宠跳转时间线失败:', e);
-          }
-        },
-      );
-      if (disposed) { try { if (unlistenAvatarTimeline) unlistenAvatarTimeline(); } catch {} return; }
-      pendingCleanup.push(unlistenAvatarTimeline);
+      // [本地化改造] 桌宠跳转时间线事件已移除
 
       // 监听背景图更新事件（来自设置页，实时预览）
       const handleBgChange = (e: Event) => handleBackgroundChanged(e);
@@ -658,22 +626,7 @@
       // 启动预加载
       preloadApp();
 
-      // 启动后延迟执行一次自动更新检查，避免阻塞首屏渲染
-      const autoUpdateTimer = setTimeout(async () => {
-        try {
-          const shouldCheck = await invoke<boolean>('should_check_updates');
-          if (!shouldCheck) return;
-
-          await runUpdateFlow({
-            silentWhenUpToDate: true,
-            confirmBeforeDownload: true,
-            onStatusChange: () => {},
-          });
-        } catch (e) {
-          console.warn('自动检查更新失败:', e);
-        }
-      }, 2000);
-      pendingCleanup.push(() => clearTimeout(autoUpdateTimer));
+      // [本地化改造] 自动更新检查已移除
 
       // 日报自动生成检测：每分钟检查一次
       let lastAutoGenDate: string | null = null;  // 防止同一天重复触发
@@ -714,26 +667,7 @@
           }
         }
 
-        // AI 工作记忆：每天工作结束后自动合成洞察
-        if (currentTotalMinutes >= workEndTotalMinutes && !memorySynthRunning) {
-          try {
-            const config = await getRuntimeConfig();
-            if (config.memory_enabled && config.memory_last_synthesis_date !== today) {
-              memorySynthRunning = true;
-              try {
-                await invoke('synthesize_insights', {});
-                // 合成可能耗时较长，重新拉取最新配置再写入，避免覆盖期间用户改动的其他设置
-                const freshConfig = await getRuntimeConfig();
-                await invoke('save_config', { config: { ...freshConfig, memory_last_synthesis_date: today } });
-                devLog('工作记忆合成完成');
-              } finally {
-                memorySynthRunning = false;
-              }
-            }
-          } catch (e) {
-            console.warn('工作记忆合成失败:', e);
-          }
-        }
+        // [本地化改造] AI 工作记忆合成已移除
       }, 60000);  // 每分钟检查一次
       pendingCleanup.push(() => clearInterval(autoReportTimer));
 

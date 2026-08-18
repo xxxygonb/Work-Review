@@ -1,6 +1,6 @@
 const BASIC_ASSISTANT_MODEL_ID = '__basic__';
 
-type ProviderLabelLocale = 'zh-CN' | 'en' | 'zh-TW';
+type ProviderLabelLocale = 'zh-CN';
 type ProviderLabels = Record<ProviderLabelLocale, string>;
 
 type KnownProviderId =
@@ -23,43 +23,23 @@ type KnownProviderId =
   | 'custom';
 
 export const MODEL_PROVIDER_DISPLAY_NAMES = {
-  ollama: {
-    'zh-CN': 'Ollama (本地)',
-    en: 'Ollama (Local)',
-    'zh-TW': 'Ollama（本機）',
-  },
-  openai: {
-    'zh-CN': 'OpenAI 兼容',
-    en: 'OpenAI Compatible',
-    'zh-TW': 'OpenAI 相容',
-  },
-  siliconflow: {
-    'zh-CN': '硅基流动',
-    en: 'SiliconFlow',
-    'zh-TW': '矽基流動',
-  },
-  deepseek: { 'zh-CN': 'DeepSeek', en: 'DeepSeek', 'zh-TW': 'DeepSeek' },
-  qwen: { 'zh-CN': '通义千问', en: 'Qwen', 'zh-TW': '通義千問' },
-  zhipu: { 'zh-CN': '智谱清言', en: 'Zhipu', 'zh-TW': '智譜清言' },
-  moonshot: { 'zh-CN': 'Kimi', en: 'Moonshot Kimi', 'zh-TW': 'Kimi' },
-  doubao: { 'zh-CN': '豆包', en: 'Doubao', 'zh-TW': '豆包' },
-  minimax: { 'zh-CN': 'MiniMax', en: 'MiniMax', 'zh-TW': 'MiniMax' },
-  gemini: { 'zh-CN': 'Google Gemini', en: 'Google Gemini', 'zh-TW': 'Google Gemini' },
-  claude: { 'zh-CN': 'Anthropic Claude', en: 'Anthropic Claude', 'zh-TW': 'Anthropic Claude' },
-  openrouter: { 'zh-CN': 'OpenRouter', en: 'OpenRouter', 'zh-TW': 'OpenRouter' },
-  groq: { 'zh-CN': 'Groq', en: 'Groq', 'zh-TW': 'Groq' },
-  xai: { 'zh-CN': 'xAI Grok', en: 'xAI Grok', 'zh-TW': 'xAI Grok' },
-  mistral: { 'zh-CN': 'Mistral', en: 'Mistral', 'zh-TW': 'Mistral' },
-  lmstudio: {
-    'zh-CN': 'LM Studio (本地)',
-    en: 'LM Studio (Local)',
-    'zh-TW': 'LM Studio（本機）',
-  },
-  custom: {
-    'zh-CN': '自定义接口',
-    en: 'Custom endpoint',
-    'zh-TW': '自訂介面',
-  },
+  ollama: { 'zh-CN': 'Ollama (本地)' },
+  openai: { 'zh-CN': 'OpenAI 兼容' },
+  siliconflow: { 'zh-CN': '硅基流动' },
+  deepseek: { 'zh-CN': 'DeepSeek' },
+  qwen: { 'zh-CN': '通义千问' },
+  zhipu: { 'zh-CN': '智谱清言' },
+  moonshot: { 'zh-CN': 'Kimi' },
+  doubao: { 'zh-CN': '豆包' },
+  minimax: { 'zh-CN': 'MiniMax' },
+  gemini: { 'zh-CN': 'Google Gemini' },
+  claude: { 'zh-CN': 'Anthropic Claude' },
+  openrouter: { 'zh-CN': 'OpenRouter' },
+  groq: { 'zh-CN': 'Groq' },
+  xai: { 'zh-CN': 'xAI Grok' },
+  mistral: { 'zh-CN': 'Mistral' },
+  lmstudio: { 'zh-CN': 'LM Studio (本地)' },
+  custom: { 'zh-CN': '自定义接口' },
 } as const satisfies Record<KnownProviderId, ProviderLabels>;
 
 interface ModelProfileLike {
@@ -85,7 +65,7 @@ function hasOwnKey<ObjectType extends object>(
 }
 
 function isProviderLabelLocale(value: string): value is ProviderLabelLocale {
-  return value === 'zh-CN' || value === 'en' || value === 'zh-TW';
+  return value === 'zh-CN';
 }
 
 function translatedLabel(translate: unknown, key: string): string {
@@ -102,7 +82,7 @@ function localizedProviderName(providerId: unknown, locale: unknown): string {
     typeof locale === 'string' && isProviderLabelLocale(locale)
       ? providerLabels[locale]
       : '';
-  return localizedLabel || providerLabels.en || providerId;
+  return localizedLabel || providerLabels['zh-CN'] || providerId;
 }
 
 export function resolveModelOptionLabel(

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { locale, t } from '$lib/i18n/index.ts';
   import { showToast } from '$lib/stores/toast.ts';
 

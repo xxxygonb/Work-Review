@@ -1,6 +1,6 @@
 <script lang="ts">
   import { t } from '$lib/i18n/index.ts';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { createEventDispatcher } from 'svelte';
 
   interface LocalApiStatus {

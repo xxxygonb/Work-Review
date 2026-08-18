@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '$lib/utils/safeInvoke.ts';
 
 import {
   parseTimelineActivities,

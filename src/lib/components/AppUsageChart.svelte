@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { formatDurationLocalized, locale, t } from '$lib/i18n/index.ts';
   import {
     appIconStore,

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { afterUpdate, onDestroy, onMount, tick } from 'svelte';
   import { fly } from 'svelte/transition';
-  import { invoke, Channel } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
+  import { Channel } from '@tauri-apps/api/core';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import {

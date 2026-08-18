@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { ComponentProps } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { invoke } from '$lib/utils/safeInvoke.ts';
   import { cache } from '../../lib/stores/cache.ts';
   import { locale, t } from '$lib/i18n/index.ts';
   import { formatUserError } from '$lib/utils/errorDisplay.ts';
@@ -104,7 +104,7 @@
     ui_visual_style: string;
   };
 
-  type SettingsTabId = 'general' | 'appearance' | 'ai' | 'avatar' | 'privacy' | 'storage' | 'node';
+  type SettingsTabId = 'general' | 'appearance' | 'privacy' | 'storage';
 
   interface SettingsTab {
     id: SettingsTabId;
@@ -135,11 +135,8 @@
   const tabs: SettingsTab[] = [
     { id: 'general', labelKey: 'settings.tabs.general', icon: 'general' },
     { id: 'appearance', labelKey: 'settings.tabs.appearance', icon: 'appearance' },
-    { id: 'ai', labelKey: 'settings.tabs.ai', icon: 'ai' },
-    { id: 'avatar', labelKey: 'settings.tabs.avatar', icon: 'avatar', beta: true },
     { id: 'privacy', labelKey: 'settings.tabs.privacy', icon: 'privacy' },
     { id: 'storage', labelKey: 'settings.tabs.storage', icon: 'storage' },
-    { id: 'node', labelKey: 'settings.tabs.node', icon: 'node', beta: true },
   ];
 
   // 加载配置
@@ -149,7 +146,7 @@
     try {
       const [loadedConfig, loadedProviders, loadedStorageStats, loadedDataDir, loadedDefaultDataDir, loadedRuntimePlatform] = await Promise.all([
         invoke<DraftSettingsConfig>('get_config'),
-        invoke<AiProvider[]>('get_ai_providers'),
+        Promise.resolve([] as AiProvider[]),  // [本地化改造] AI providers 已移除
         invoke<StorageStats>('get_storage_stats'),
         invoke<string>('get_data_dir'),
         invoke<string>('get_default_data_dir'),
@@ -507,16 +504,6 @@
           <SettingsGeneral bind:config on:change={() => dirty = true} />
         {:else if activeTab === 'appearance'}
           <SettingsAppearance bind:config mode="background-only" on:change={handleSettingsChange} />
-        {:else if activeTab === 'node'}
-          <SettingsNodeGateway bind:config {dataDir} on:change={() => dirty = true} />
-        {:else if activeTab === 'ai'}
-          <div class="settings-card settings-ai-shell">
-            <h3 class="settings-card-title">{t('settings.aiCardTitle')}</h3>
-            <p class="settings-card-desc">{t('settings.aiCardDescription')}</p>
-            <SettingsAI bind:config {providers} on:change={() => dirty = true} />
-          </div>
-        {:else if activeTab === 'avatar'}
-          <SettingsAvatar bind:config on:change={() => dirty = true} />
         {:else if activeTab === 'privacy'}
           <SettingsPrivacy
             bind:config

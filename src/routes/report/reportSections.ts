@@ -133,11 +133,7 @@ export function getVisibleReportSections(
   });
 }
 
-function sectionNumberPrefix(visibleIndex: number, localeCode: string): string {
-  if (localeCode === 'en') {
-    return `${visibleIndex + 1}. `;
-  }
-
+function sectionNumberPrefix(visibleIndex: number, _localeCode: string): string {
   return `${CJK_NUMBERS[visibleIndex] || visibleIndex + 1}、`;
 }
 
