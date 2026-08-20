@@ -1081,6 +1081,9 @@ pub struct AppConfig {
     /// 轻量模式：关闭主界面时释放主 Webview，仅保留后台录制与托盘
     #[serde(default)]
     pub lightweight_mode: bool,
+    /// 隐藏托盘图标
+    #[serde(default)]
+    pub hide_tray_icon: bool,
     /// 是否启用休息提醒
     #[serde(default)]
     pub break_reminder_enabled: bool,
@@ -1321,6 +1324,7 @@ impl Default for AppConfig {
             openai_model: "gpt-5.4".to_string(),
             hide_dock_icon: false,
             lightweight_mode: false,
+            hide_tray_icon: false,
             break_reminder_enabled: false,
             break_reminder_interval_minutes: default_break_reminder_interval_minutes(),
             daily_work_goal_minutes: None,

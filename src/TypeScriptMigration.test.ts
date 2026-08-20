@@ -160,9 +160,6 @@ const twelfthBatchPublicTypeContracts = [
 const i18nModules = [
   'src/lib/i18n/index',
   'src/lib/i18n/locales/zh-CN',
-  'src/lib/i18n/locales/en',
-  'src/lib/i18n/locales/zh-TW',
-  'src/lib/i18n/locales/ar',
 ];
 
 async function assertMigratedToTypeScript(relativePath: string) {

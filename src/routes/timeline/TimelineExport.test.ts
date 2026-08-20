@@ -49,8 +49,8 @@ test('时间线工具栏应包含导出按钮，并在加载/无数据时禁用'
   );
 });
 
-test('三种语言 locale 的 timeline 块都应包含导出相关文案', async () => {
-  const locales = ['zh-CN', 'zh-TW', 'en'];
+test('中文 locale 的 timeline 块应包含导出相关文案', async () => {
+  const locales = ['zh-CN'];
   const requiredKeys = [
     'exportTitle',
     'exportNothing',

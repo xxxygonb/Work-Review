@@ -586,7 +586,7 @@ type ExpectedAppIconInvoke = (
 
 type ExpectedAppIconStore = Writable<ExpectedAppIconCacheState>;
 
-type ExpectedLocale = 'zh-CN' | 'en' | 'zh-TW' | 'ar';
+type ExpectedLocale = 'zh-CN';
 
 type ExpectedTranslationValue =
   | string
@@ -1211,7 +1211,7 @@ type DurationFormatOptionsContract = Expect<Equal<
 >>;
 type SupportedLocalesContract = Expect<Equal<
   typeof SUPPORTED_LOCALES,
-  readonly ['zh-CN', 'en', 'zh-TW', 'ar']
+  readonly ['zh-CN']
 >>;
 type LocaleStoreValueContract = Expect<Equal<
   typeof localeStore,

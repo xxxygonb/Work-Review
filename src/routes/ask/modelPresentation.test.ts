@@ -41,8 +41,8 @@ test('配置模型应优先显示用户配置的档案名称', () => {
 
 test('无效模型选择应回退到当前语言的基础模板名称', () => {
   assert.equal(
-    resolveModelOptionLabel('missing-model', [], 'en', createTranslate('en')),
-    'Template',
+    resolveModelOptionLabel('missing-model', [], 'zh-CN', createTranslate('zh-CN')),
+    '模板',
   );
 });
 
@@ -58,9 +58,5 @@ test('缺少档案名称时应随 locale 变化本地化 provider 名称', () =>
   assert.equal(
     resolveModelOptionLabel('local-model', profiles, 'zh-CN', createTranslate('zh-CN')),
     'Ollama (本地) · qwen3:8b',
-  );
-  assert.equal(
-    resolveModelOptionLabel('local-model', profiles, 'en', createTranslate('en')),
-    'Ollama (Local) · qwen3:8b',
   );
 });

@@ -2,6 +2,22 @@
 
 ## 2026-08-18
 
+### 3. 设置>常规 添加"隐藏托盘图标"开关
+
+**功能**：在设置 > 常规 > 系统行为区域添加"隐藏托盘图标"开关，开启后隐藏系统托盘图标。
+
+#### 修改文件
+- `crates/core/src/config.rs` — `AppConfig` 结构体新增 `hide_tray_icon: bool` 字段（默认 `false`）
+- `src-tauri/src/main.rs` —
+  - `TrayMenuState` 新增 `tray: TrayIcon` 字段，存储 tray 引用以便后续调用 `set_visible`
+  - 启动时根据 `config.hide_tray_icon` 初始值设置托盘可见性
+  - 调整 `app.manage(TrayMenuState)` 位置，在 tray build 之后执行
+- `src-tauri/src/commands/shared.rs` — `persist_app_config` 中添加托盘图标显隐同步：配置保存后根据 `hide_tray_icon` 调用 `tray.set_visible`
+- `src/routes/settings/components/SettingsGeneral.svelte` —
+  - `GeneralConfig` 接口新增 `hide_tray_icon: boolean`
+  - 系统行为区域新增"隐藏托盘图标"开关（样式与其它开关一致）
+- `src/lib/i18n/locales/zh-CN.ts` — 新增 `hideTrayIcon` / `hideTrayIconDescription` 中文文本
+
 ### 1. 修复网页端无数据 Bug
 
 **问题**：桌面端（Tauri）有数据，但网页端（纯浏览器访问 Vite dev server）所有数据为空。

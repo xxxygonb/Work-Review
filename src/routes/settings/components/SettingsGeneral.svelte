@@ -15,6 +15,7 @@
     auto_start: boolean;
     auto_start_silent: boolean;
     hide_dock_icon: boolean;
+    hide_tray_icon: boolean;
     lightweight_mode: boolean;
     work_time_enabled: boolean;
     work_time_segments?: WorkTimeSegment[] | null;
@@ -530,6 +531,26 @@
             aria-checked={config.lightweight_mode}
           >
             <span class="switch-thumb {config.lightweight_mode ? 'translate-x-5' : 'translate-x-0'}"></span>
+          </button>
+        </div>
+
+        <div class="settings-row">
+          <div>
+            <span class="settings-text">{t('settingsGeneral.hideTrayIcon')}</span>
+            <p class="settings-muted mt-0.5">{t('settingsGeneral.hideTrayIconDescription')}</p>
+          </div>
+          <button
+            type="button"
+            on:click={() => {
+              config.hide_tray_icon = !config.hide_tray_icon;
+              handleChange();
+            }}
+            class="switch-track {config.hide_tray_icon ? 'bg-primary-500' : 'bg-slate-300 dark:bg-[#484f58]'}"
+            role="switch"
+            aria-label={t('settingsGeneral.hideTrayIcon')}
+            aria-checked={config.hide_tray_icon}
+          >
+            <span class="switch-thumb {config.hide_tray_icon ? 'translate-x-5' : 'translate-x-0'}"></span>
           </button>
         </div>
       </div>

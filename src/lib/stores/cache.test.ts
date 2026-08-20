@@ -126,12 +126,12 @@ test('新增活动不应创建缺失的今日缓存或替换重复活动与摘�
 test('缓存 setter 应保留输入数据引用而不做隐式转换', () => {
   const overview = { totalDuration: 120 };
   const report = { content: 'report' };
-  const config = { language: 'en' };
+  const config = { language: 'zh-CN' };
   const summaries = [{ hour: 9 }];
   const activities = [{ id: 1 }];
 
   cache.setOverview(overview);
-  cache.setReport('2026-08-09:en', report);
+  cache.setReport('2026-08-09:zh-CN', report);
   cache.setConfig(config);
   cache.setTimeline('2026-08-09', activities, summaries);
 
@@ -147,13 +147,13 @@ test('invalidate 应只失效目标缓存，clear 应恢复完整初始状态', 
   const today = getLocalDate();
   cache.setOverview({ totalDuration: 120 });
   cache.setTimeline(today, [{ id: 1 }], []);
-  cache.setReport(`${today}:en`, 'report');
+  cache.setReport(`${today}:zh-CN`, 'report');
   cache.setReportGenerating(true);
-  cache.setConfig({ language: 'en' });
+  cache.setConfig({ language: 'zh-CN' });
 
   cache.invalidate('overview');
   cache.invalidate('timeline', today);
-  cache.invalidate('report', `${today}:en`);
+  cache.invalidate('report', `${today}:zh-CN`);
 
   let state = get(cache);
   assert.equal(state.overview.timestamp, 0);

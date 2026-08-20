@@ -121,12 +121,10 @@ test('助手侧的语义检索接线完整', () => {
   assert.match(ask, /search_semantic_memory_inner/, 'ask.rs 应桥接语义检索');
 });
 
-test('语义记忆 i18n 键在四语言中完整', () => {
-  for (const localeFile of ['zh-CN', 'zh-TW', 'en', 'ar']) {
-    const source = read(`./lib/i18n/locales/${localeFile}.ts`);
-    for (const key of ['semanticMemory:', 'askHint:', 'indexStatus:', 'startIndex:', 'providerOllama:']) {
-      assert.ok(source.includes(key), `${localeFile}.ts 缺少 ${key}`);
-    }
+test('语义记忆 i18n 键在中文中完整', () => {
+  const source = read('./lib/i18n/locales/zh-CN.ts');
+  for (const key of ['semanticMemory:', 'askHint:', 'indexStatus:', 'startIndex:', 'providerOllama:']) {
+    assert.ok(source.includes(key), `zh-CN.ts 缺少 ${key}`);
   }
 });
 

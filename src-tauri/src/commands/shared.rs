@@ -2,7 +2,7 @@
 
 use crate::AppState;
 use std::sync::{Arc, Mutex};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use work_review_core::config::{AppConfig, AvatarFollowupItem, PrivacyConfig};
 use work_review_core::database::Activity;
 use work_review_core::error::AppError;
@@ -393,6 +393,10 @@ pub(crate) fn persist_app_config(
 
     if dock_visibility_changed {
         crate::sync_effective_dock_visibility(&app);
+    }
+
+    if let Some(tray_menu) = app.try_state::<crate::TrayMenuState>() {
+        let _ = tray_menu.tray.set_visible(!config.hide_tray_icon);
     }
 
     crate::localhost_api::sync_localhost_api_runtime(&app, state)?;

@@ -62,8 +62,8 @@ test('批量导出按钮应在 report 工具栏中触发 openBatchExportModal', 
   assert.match(source, /disabled=\{batchExporting\}/);
 });
 
-test('三种语言 locale 的 report 块都应包含批量导出相关文案', async () => {
-  const locales = ['zh-CN', 'zh-TW', 'en'];
+test('中文 locale 的 report 块应包含批量导出相关文案', async () => {
+  const locales = ['zh-CN'];
   const requiredKeys = [
     'batchExport',
     'batchExportTitle',

@@ -68,6 +68,7 @@ pub(crate) struct TrayMenuState {
     lightweight_mode: AppCheckMenuItem,
     avatar_toggle: AppCheckMenuItem,
     quit: AppMenuItem,
+    tray: tauri::tray::TrayIcon,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -4361,15 +4362,6 @@ async fn main() {
                 .item(&quit)
                 .build()?;
 
-            app.manage(TrayMenuState {
-                show: show.clone(),
-                recording_toggle: recording_toggle.clone(),
-                lightweight_mode: lightweight_mode.clone(),
-                avatar_toggle: avatar_toggle.clone(),
-                quit: quit.clone(),
-            });
-            refresh_tray_menu(app.handle());
-
             let tray_icon = build_tray_icon(app);
             let tray_builder = TrayIconBuilder::new().icon(tray_icon).menu(&menu);
 
@@ -4452,6 +4444,23 @@ async fn main() {
                     }
                 })
                 .build(app)?;
+
+            app.manage(TrayMenuState {
+                show: show.clone(),
+                recording_toggle: recording_toggle.clone(),
+                lightweight_mode: lightweight_mode.clone(),
+                avatar_toggle: avatar_toggle.clone(),
+                quit: quit.clone(),
+                tray: _tray.clone(),
+            });
+            refresh_tray_menu(app.handle());
+
+            if let Some(state) = app.try_state::<Arc<Mutex<AppState>>>() {
+                let hide_tray = state.lock().unwrap_or_else(|e| e.into_inner()).config.hide_tray_icon;
+                if hide_tray {
+                    let _ = _tray.set_visible(false);
+                }
+            }
 
             // 启动后台截屏任务
             tauri::async_runtime::spawn(async move {

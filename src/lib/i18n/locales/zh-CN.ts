@@ -563,6 +563,8 @@ export default {
       hideDockIconDescription: '隐藏后仅通过系统托盘访问应用',
       lightweightMode: '轻量模式',
       lightweightModeDescription: '关闭主界面后仅保留后台记录与托盘，重新打开时按需重建',
+      hideTrayIcon: '隐藏托盘图标',
+      hideTrayIconDescription: '开启后不显示系统托盘图标，仅通过 Dock 图标或任务栏访问',
       localApi: '本地 API',
       localApiDescription: '默认关闭，可按监听地址提供给本机、局域网脚本、Bot 或自动化框架调用当前设备日报能力。',
       localApiPort: '监听端口',
