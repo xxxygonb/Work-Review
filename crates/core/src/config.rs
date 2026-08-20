@@ -13,6 +13,10 @@ fn default_locale() -> String {
     "zh-CN".to_string()
 }
 
+fn default_app_password() -> String {
+    "Admin123".to_string()
+}
+
 /// AI 提供商类型
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -1084,6 +1088,9 @@ pub struct AppConfig {
     /// 隐藏托盘图标
     #[serde(default)]
     pub hide_tray_icon: bool,
+    /// 应用访问密码
+    #[serde(default = "default_app_password")]
+    pub app_password: String,
     /// 是否启用休息提醒
     #[serde(default)]
     pub break_reminder_enabled: bool,
@@ -1325,6 +1332,7 @@ impl Default for AppConfig {
             hide_dock_icon: false,
             lightweight_mode: false,
             hide_tray_icon: false,
+            app_password: default_app_password(),
             break_reminder_enabled: false,
             break_reminder_interval_minutes: default_break_reminder_interval_minutes(),
             daily_work_goal_minutes: None,

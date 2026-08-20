@@ -5,6 +5,7 @@
   import Sidebar from './lib/components/Sidebar.svelte';
   import Toast from './lib/components/Toast.svelte';
   import ConfirmDialog from './lib/components/ConfirmDialog.svelte';
+  import LoginPage from './lib/components/LoginPage.svelte';
   import { invoke } from './lib/utils/safeInvoke.ts';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -336,6 +337,7 @@
     '/settings': wrap({ asyncComponent: () => import('./routes/settings/Settings.svelte') }),
   };
 
+  let isAuthenticated = false;
   let theme: Theme = 'system';
   let isDark = false;
   let isRecording = true;
@@ -713,6 +715,9 @@
     <svelte:component this={AvatarWindowComponent} />
   {/if}
 {:else}
+{#if !isAuthenticated}
+  <LoginPage on:success={() => { isAuthenticated = true; }} />
+{:else}
 <div class="app-shell ui-style-{uiVisualStyle} flex h-screen overflow-hidden relative">
   <div class="app-shell-ambient pointer-events-none absolute inset-0 z-0 opacity-80">
     <div class="absolute inset-x-0 top-0 h-40 bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.14),transparent_62%)] dark:bg-[radial-gradient(circle_at_top,rgba(99,102,241,0.18),transparent_62%)]"></div>
@@ -808,4 +813,5 @@
     </section>
   </div>
 </div>
+{/if}
 {/if}

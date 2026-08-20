@@ -7,10 +7,6 @@ const translations: Record<string, Record<string, string>> = {
     'ask.basicTemplate': '基础模板',
     'ask.aiEnhanced': 'AI 增强',
   },
-  en: {
-    'ask.basicTemplate': 'Template',
-    'ask.aiEnhanced': 'AI Enhanced',
-  },
 };
 
 function createTranslate(locale: string): (key: string) => string {

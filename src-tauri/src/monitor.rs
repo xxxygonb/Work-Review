@@ -5,15 +5,17 @@ use crate::linux_session::{
 };
 #[cfg(target_os = "windows")]
 use once_cell::sync::Lazy;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "windows", test))]
 use regex::Regex;
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 use serde_json::Value;
 #[cfg(any(target_os = "windows", test))]
 use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
+use std::io::Write;
+#[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::process::{Command, Output, Stdio};
@@ -194,7 +196,14 @@ pub fn clean_browser_window_title(title: &str, app_name: &str) -> String {
         return title.to_string();
     }
 
-    clean_segments.join(" - ")
+    let result = clean_segments.join(" - ");
+
+    let result = regex::Regex::new(r"(?: 和另外\s*\d+\s*个页面| and \d+ more tabs?)")
+        .ok()
+        .map(|re| re.replace_all(&result, "").trim().to_string())
+        .unwrap_or(result);
+
+    result
 }
 
 fn is_size_value(s: &str) -> bool {
@@ -253,7 +262,7 @@ fn is_browser_internal_segment(segment: &str) -> bool {
     false
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 fn firefox_family_profile_dir_from_ini(base_dir: &Path, ini_content: &str) -> Option<PathBuf> {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum SectionKind {
@@ -362,7 +371,7 @@ fn firefox_family_profile_dir_from_ini(base_dir: &Path, ini_content: &str) -> Op
         .map(PathBuf::from)
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 fn decode_mozlz4_bytes(data: &[u8]) -> std::result::Result<Vec<u8>, String> {
     const HEADER: &[u8; 8] = b"mozLz40\0";
 
@@ -453,7 +462,7 @@ fn decode_mozlz4_bytes(data: &[u8]) -> std::result::Result<Vec<u8>, String> {
     Ok(out)
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 fn normalize_session_store_title(value: &str) -> String {
     value
         .split(" - Mozilla Firefox")
@@ -472,7 +481,7 @@ fn normalize_session_store_title(value: &str) -> String {
         .to_string()
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 fn extract_active_tab_url_from_session_store_value(
     value: &Value,
     window_title: &str,
@@ -576,7 +585,7 @@ fn extract_active_tab_url_from_session_store_value(
     best_match.map(|(_, _, url)| url)
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 fn firefox_family_session_store_base_dir(app_lower: &str) -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
@@ -608,14 +617,31 @@ fn firefox_family_session_store_base_dir(app_lower: &str) -> Option<PathBuf> {
         }
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        let app_data = dirs::data_dir()?;
+
+        if app_lower.contains("firefox") {
+            Some(app_data.join("Mozilla/Firefox"))
+        } else if app_lower.contains("zen") {
+            Some(app_data.join("Zen"))
+        } else if app_lower.contains("librewolf") {
+            Some(app_data.join("LibreWolf"))
+        } else if app_lower.contains("waterfox") {
+            Some(app_data.join("Waterfox"))
+        } else {
+            None
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = app_lower;
         None
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 fn firefox_family_session_store_url(app_name: &str, window_title: &str) -> Option<String> {
     let app_lower = app_name.to_lowercase();
     let base_dir = firefox_family_session_store_base_dir(&app_lower)?;
@@ -996,10 +1022,10 @@ struct BrowserUrlProtectionConfig {
 impl Default for BrowserUrlProtectionConfig {
     fn default() -> Self {
         Self {
-            success_ttl_ms: 3_000,
-            failure_ttl_ms: 2_000,
-            slow_query_threshold_ms: 1_000,
-            circuit_breaker_cooldown_ms: 20_000,
+            success_ttl_ms: 5_000,
+            failure_ttl_ms: 3_000,
+            slow_query_threshold_ms: 2_000,
+            circuit_breaker_cooldown_ms: 15_000,
         }
     }
 }
@@ -1137,10 +1163,10 @@ static WINDOWS_BROWSER_URL_PROTECTION: Lazy<Mutex<BrowserUrlProtection>> = Lazy:
 static WINDOWS_BROWSER_URL_PROTECTION_CLOCK: Lazy<Instant> = Lazy::new(Instant::now);
 
 #[cfg(target_os = "windows")]
-const WINDOWS_BROWSER_URL_WAIT_TIMEOUT_MS: u64 = 350;
+const WINDOWS_BROWSER_URL_WAIT_TIMEOUT_MS: u64 = 800;
 
 #[cfg(target_os = "windows")]
-const WINDOWS_BROWSER_URL_NATIVE_FALLBACK_BUDGET_MS: u64 = 200;
+const WINDOWS_BROWSER_URL_NATIVE_FALLBACK_BUDGET_MS: u64 = 500;
 
 #[cfg(target_os = "windows")]
 #[derive(Debug)]
@@ -1422,18 +1448,256 @@ fn get_browser_url_windows(app_name: &str, window_title: &str, hwnd: isize) -> O
 }
 
 #[cfg(target_os = "windows")]
+fn chromium_history_latest_url(app_name: &str, window_title: &str) -> Option<String> {
+    let app_lower = app_name.to_lowercase();
+    if !app_lower.contains("chrome")
+        && !app_lower.contains("msedge")
+        && !app_lower.contains("microsoft edge")
+        && !app_lower.contains("brave")
+        && !app_lower.contains("chromium")
+        && !app_lower.contains("vivaldi")
+    {
+        return None;
+    }
+
+    let history_paths = find_all_chromium_history_paths(&app_lower);
+    if history_paths.is_empty() {
+        log::debug!("Chromium History: 未找到 History 文件: app={}", app_name);
+        return None;
+    }
+
+    let title_keywords = extract_title_keywords(window_title);
+    if title_keywords.is_empty() {
+        return None;
+    }
+
+    for history_path in &history_paths {
+        for keyword in &title_keywords {
+            if let Some(url) = read_url_from_chromium_history(history_path, keyword) {
+                return Some(url);
+            }
+        }
+    }
+
+    for history_path in &history_paths {
+        if let Some(url) = read_latest_url_from_chromium_history(history_path) {
+            return Some(url);
+        }
+    }
+
+    None
+}
+
+fn extract_title_keywords(window_title: &str) -> Vec<String> {
+    let mut keywords = Vec::new();
+
+    let cleaned = window_title
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control() && *c != '\u{200b}' && *c != '\u{feff}')
+        .collect::<String>();
+
+    let without_tab_count = regex::Regex::new(r"(?: 和另外\s*\d+\s*个页面| and \d+ more tabs?)")
+        .ok()
+        .and_then(|re| {
+            let replaced = re.replace_all(&cleaned, "").to_string();
+            if replaced != cleaned { Some(replaced) } else { None }
+        })
+        .unwrap_or_else(|| cleaned.clone());
+
+    let segments: Vec<&str> = without_tab_count.split(" - ").collect();
+    let main_title = segments.first().copied().unwrap_or(&without_tab_count);
+
+    let main_trimmed = main_title.trim();
+    if main_trimmed.len() >= 3 {
+        keywords.push(main_trimmed.chars().take(50).collect());
+    }
+
+    if main_trimmed.len() > 10 {
+        keywords.push(main_trimmed.chars().take(20).collect());
+    }
+
+    if segments.len() > 1 {
+        let second = segments[1].trim();
+        if second.len() >= 2 && second.len() <= 30 {
+            keywords.push(format!("{} {}", main_trimmed.chars().take(15).collect::<String>(), second));
+        }
+    }
+
+    if without_tab_count != cleaned {
+        let raw_segments: Vec<&str> = cleaned.split(" - ").collect();
+        let raw_main = raw_segments.first().copied().unwrap_or(&cleaned).trim();
+        if raw_main.len() >= 3 && !keywords.iter().any(|k| k == raw_main) {
+            keywords.push(raw_main.chars().take(50).collect());
+        }
+    }
+
+    keywords
+}
+
+#[cfg(target_os = "windows")]
+fn find_all_chromium_history_paths(app_lower: &str) -> Vec<PathBuf> {
+    let local_app_data = match dirs::data_local_dir() {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+
+    let sub_dir = if app_lower.contains("msedge") || app_lower.contains("microsoft edge") {
+        "Microsoft/Edge"
+    } else if app_lower.contains("brave") {
+        "BraveSoftware/Brave-Browser"
+    } else if app_lower.contains("vivaldi") {
+        "Vivaldi"
+    } else if app_lower.contains("chromium") {
+        "Chromium"
+    } else {
+        "Google/Chrome"
+    };
+
+    let user_data_dir = local_app_data.join(sub_dir).join("User Data");
+    let mut paths = Vec::new();
+
+    let default_history = user_data_dir.join("Default/History");
+    if default_history.exists() {
+        paths.push(default_history);
+    }
+
+    if let Ok(entries) = std::fs::read_dir(&user_data_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("Profile") {
+                let history = entry.path().join("History");
+                if history.exists() && !paths.contains(&history) {
+                    paths.push(history);
+                }
+            }
+        }
+    }
+
+    paths
+}
+
+#[cfg(target_os = "windows")]
+fn read_url_from_chromium_history(history_path: &Path, title_keyword: &str) -> Option<String> {
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join(format!("wr_hist_{}_{}", std::process::id(), history_path.file_name()?.to_string_lossy().as_ref()));
+
+    if std::fs::copy(history_path, &tmp_path).is_err() {
+        log::debug!("Chromium History: 复制失败: {:?}", history_path);
+        return None;
+    }
+
+    let result = (|| {
+        let conn = rusqlite::Connection::open_with_flags(
+            &tmp_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ).ok()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT u.url FROM urls u JOIN visits v ON u.id = v.url WHERE u.title LIKE ?1 AND u.url LIKE 'http%' ORDER BY v.visit_time DESC LIMIT 1"
+        ).ok()?;
+
+        let pattern = format!("%{}%", title_keyword);
+        let url: String = stmt.query_row([&pattern.as_str()], |row| row.get(0)).ok()?;
+
+        if url.starts_with("http://") || url.starts_with("https://") {
+            Some(url)
+        } else {
+            None
+        }
+    })();
+
+    let _ = std::fs::remove_file(&tmp_path);
+
+    if let Some(ref url) = result {
+        log::debug!("Chromium History 命中: keyword='{}' url={}", title_keyword, url);
+    }
+
+    result
+}
+
+#[cfg(target_os = "windows")]
+fn read_latest_url_from_chromium_history(history_path: &Path) -> Option<String> {
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join(format!("wr_hist_latest_{}_{}", std::process::id(), history_path.file_name()?.to_string_lossy().as_ref()));
+
+    if std::fs::copy(history_path, &tmp_path).is_err() {
+        return None;
+    }
+
+    let result = (|| {
+        let conn = rusqlite::Connection::open_with_flags(
+            &tmp_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ).ok()?;
+
+        let url: String = conn.query_row(
+            "SELECT u.url FROM urls u JOIN visits v ON u.id = v.url WHERE u.url LIKE 'http%' ORDER BY v.visit_time DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        ).ok()?;
+
+        if url.starts_with("http://") || url.starts_with("https://") {
+            Some(url)
+        } else {
+            None
+        }
+    })();
+
+    let _ = std::fs::remove_file(&tmp_path);
+
+    if let Some(ref url) = result {
+        log::debug!("Chromium History 最近URL兜底: url={}", url);
+    }
+
+    result
+}
+
+#[cfg(target_os = "windows")]
 fn query_browser_url_windows_unprotected(
     app_name: &str,
     window_title: &str,
     hwnd: isize,
 ) -> Option<String> {
     let started_at = Instant::now();
-    // 使用原生 UI Automation 获取 URL，catch_unwind 防止 COM 异常导致崩溃
+
+    let app_lower = app_name.to_lowercase();
+    if app_lower.contains("firefox") || app_lower.contains("zen") || app_lower.contains("librewolf") || app_lower.contains("waterfox") {
+        if let Some(url) = firefox_family_session_store_url(app_name, window_title) {
+            log::debug!("浏览器 URL 命中 Firefox Session Store: {url}");
+            return Some(url);
+        }
+    }
+
+    if let Some(url) = chromium_history_latest_url(app_name, window_title) {
+        log::debug!("浏览器 URL 命中 Chromium History: {url}");
+        return Some(url);
+    }
+
+    let cdp_result = get_url_via_cdp(app_name, hwnd);
+    if let Some(url) = cdp_result {
+        log::debug!("浏览器 URL 命中 CDP: {url}");
+        return Some(url);
+    }
+    log::debug!("浏览器 URL CDP 未命中: app={}", app_name);
+
     let native_result = std::panic::catch_unwind(|| get_url_via_uiautomation(hwnd)).unwrap_or(None);
     if let Some(url) = native_result {
         log::debug!("浏览器 URL 命中原生 UIA: {url}");
         return Some(url);
     }
+    log::debug!(
+        "浏览器 URL 原生 UIA 未命中: app={}, elapsed={}ms",
+        app_name,
+        started_at.elapsed().as_millis()
+    );
+
+    let enum_result = std::panic::catch_unwind(|| get_url_via_enum_child_windows(hwnd)).unwrap_or(None);
+    if let Some(url) = enum_result {
+        log::debug!("浏览器 URL 命中 EnumChildWindows: {url}");
+        return Some(url);
+    }
+    log::debug!("浏览器 URL EnumChildWindows 未命中: app={}", app_name);
 
     let native_elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     if !should_run_windows_browser_url_fallback(
@@ -1454,7 +1718,6 @@ fn query_browser_url_windows_unprotected(
         return Some(url);
     }
 
-    // UI Automation 失败时，尝试从窗口标题提取域名信息作为兜底
     let title_result = infer_browser_page_hint(window_title);
     if title_result.is_none() {
         log::debug!(
@@ -1469,6 +1732,244 @@ fn query_browser_url_windows_unprotected(
 #[cfg(any(target_os = "windows", test))]
 fn should_run_windows_browser_url_fallback(elapsed_ms: u64, budget_ms: u64) -> bool {
     elapsed_ms < budget_ms
+}
+
+#[cfg(target_os = "windows")]
+fn get_url_via_cdp(app_name: &str, hwnd: isize) -> Option<String> {
+    use std::io::Read as _;
+    use std::net::TcpStream;
+
+    let app_lower = app_name.to_lowercase();
+    if !app_lower.contains("chrome")
+        && !app_lower.contains("msedge")
+        && !app_lower.contains("microsoft edge")
+        && !app_lower.contains("brave")
+        && !app_lower.contains("chromium")
+        && !app_lower.contains("vivaldi")
+    {
+        return None;
+    }
+
+    let pid = get_window_process_id_windows(hwnd);
+    if pid == 0 {
+        return None;
+    }
+
+    let port = find_browser_debug_port(pid)
+        .or_else(|| scan_common_debug_ports(pid));
+
+    let port = match port {
+        Some(p) => p,
+        None => return None,
+    };
+    log::debug!("发现浏览器调试端口: pid={}, port={}", pid, port);
+
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().ok()?;
+    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(200)) {
+        Ok(s) => s,
+        Err(_) => return None,
+    };
+    stream.set_read_timeout(Some(Duration::from_millis(300))).ok()?;
+
+    let request = format!(
+        "GET /json HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+        port
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return None;
+    }
+
+    let mut response = Vec::new();
+    if stream.read_to_end(&mut response).is_err() {
+        return None;
+    }
+
+    let body = extract_http_body(&response);
+
+    let tabs: Vec<serde_json::Value> = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+
+    let window_title = {
+        use winapi::um::winuser::GetWindowTextW;
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+        unsafe {
+            let mut title: [u16; 512] = [0; 512];
+            let len = GetWindowTextW(hwnd as _, title.as_mut_ptr(), 512);
+            if len > 0 {
+                OsString::from_wide(&title[..len as usize]).to_string_lossy().to_string()
+            } else {
+                String::new()
+            }
+        }
+    };
+
+    let mut best_match: Option<(i32, String)> = None;
+    for tab in tabs {
+        let tab_type = tab.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if tab_type != "page" {
+            continue;
+        }
+
+        let url_value = tab.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        if !url_value.starts_with("http://") && !url_value.starts_with("https://") {
+            continue;
+        }
+
+        let normalized = normalize_browser_url_candidate(url_value);
+        if normalized.is_none() {
+            continue;
+        }
+
+        let mut score = 50;
+
+        let tab_title = tab.get("title").and_then(|v| v.as_str()).unwrap_or("");
+        if !window_title.is_empty() && !tab_title.is_empty() && window_title.contains(tab_title) {
+            score += 40;
+        }
+
+        let is_active = tab.get("active")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if is_active {
+            score += 20;
+        }
+
+        if best_match.as_ref().map(|(s, _)| score > *s).unwrap_or(true) {
+            best_match = Some((score, normalized.unwrap()));
+        }
+    }
+
+    best_match.map(|(_, url)| url)
+}
+
+#[cfg(target_os = "windows")]
+fn scan_common_debug_ports(target_pid: u32) -> Option<u16> {
+    use std::io::Read as _;
+    use std::net::TcpStream;
+
+    let common_ports: &[u16] = &[
+        9222, 9223, 9224, 9225, 9226, 9227, 9228, 9229,
+        9230, 9231, 9232, 9233, 9234, 9235,
+        9300, 9301, 9302, 9303, 9304, 9305,
+        9515,
+        9222, 9229,
+    ];
+
+    for &port in common_ports {
+        let addr: std::net::SocketAddr = match format!("127.0.0.1:{}", port).parse() {
+            Ok(a) => a,
+            Err(_) => continue,
+        };
+
+        let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(50)) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(100)));
+
+        let request = format!(
+            "GET /json/version HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+            port
+        );
+        if stream.write_all(request.as_bytes()).is_err() {
+            continue;
+        }
+
+        let mut response = Vec::new();
+        if stream.read_to_end(&mut response).is_err() {
+            continue;
+        }
+
+        let body = extract_http_body(&response);
+        if let Ok(version_info) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(web_socket_url) = version_info.get("webSocketDebuggerUrl").and_then(|v| v.as_str()) {
+                if web_socket_url.contains(&format!(":{}", port)) {
+                    return Some(port);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn find_browser_debug_port(pid: u32) -> Option<u16> {
+    let cmdline = read_process_command_line_via_wmi(pid)?;
+
+    if let Some(port) = extract_debug_port_from_cmdline(&cmdline, "--remote-debugging-port") {
+        return Some(port);
+    }
+
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn read_process_command_line_via_wmi(pid: u32) -> Option<String> {
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const POWERSHELL_PATH: &str = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+
+    let script = format!(
+        "(Get-CimInstance Win32_Process -Filter 'ProcessId = {}').CommandLine",
+        pid
+    );
+
+    let output = run_monitor_command_with_timeout(
+        Command::new(POWERSHELL_PATH)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
+            .creation_flags(CREATE_NO_WINDOW),
+        "WMI 进程命令行",
+    )
+    .ok()?;
+
+    let cmdline = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if cmdline.is_empty() {
+        None
+    } else {
+        Some(cmdline)
+    }
+}
+
+fn extract_debug_port_from_cmdline(cmdline: &str, flag: &str) -> Option<u16> {
+    let lower = cmdline.to_lowercase();
+    let flag_lower = flag.to_lowercase();
+
+    if let Some(pos) = lower.find(&flag_lower) {
+        let after_flag = &cmdline[pos + flag.len()..];
+        let trimmed = after_flag.trim_start_matches(|c: char| c == ' ' || c == '=');
+
+        if let Some(port_str) = trimmed.split(|c: char| c.is_whitespace()).next() {
+            if let Ok(port) = port_str.parse::<u16>() {
+                if port > 0 {
+                    return Some(port);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn extract_http_body(response: &[u8]) -> String {
+    let response_str = String::from_utf8_lossy(response);
+    if let Some(body_start) = response_str.find("\r\n\r\n") {
+        response_str[body_start + 4..].to_string()
+    } else if let Some(body_start) = response_str.find("\n\n") {
+        response_str[body_start + 2..].to_string()
+    } else {
+        response_str.to_string()
+    }
 }
 
 /// Windows PowerShell 5.1 + UIAutomation 兜底读取真实地址栏 URL
@@ -1501,6 +2002,9 @@ $docCondition = New-Object System.Windows.Automation.PropertyCondition(
 $allConditions = New-Object System.Windows.Automation.OrCondition($editCondition, $docCondition)
 $nodes = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $allConditions)
 
+$bestScore = 0
+$bestUrl = $null
+
 for ($i = 0; $i -lt $nodes.Count; $i++) {{
     $node = $nodes.Item($i)
     $candidates = New-Object System.Collections.Generic.List[string]
@@ -1519,15 +2023,46 @@ for ($i = 0; $i -lt $nodes.Count; $i++) {{
         if ($node.Current.Name) {{ [void]$candidates.Add($node.Current.Name) }}
     }} catch {{ }}
 
+    $ctrlType = $node.Current.ControlType.ProgrammaticName
+    $score = if ($ctrlType -eq 'Edit') {{ 40 }} elseif ($ctrlType -eq 'Document') {{ 15 }} else {{ 0 }}
+
+    try {{
+        $name = $node.Current.Name
+        $cls = $node.Current.ClassName
+        $aid = $node.Current.AutomationId
+        $nameL = if ($name) {{ $name.ToLower() }} else {{ '' }}
+        $clsL = if ($cls) {{ $cls.ToLower() }} else {{ '' }}
+        $aidL = if ($aid) {{ $aid.ToLower() }} else {{ '' }}
+        $addressLike = $nameL.Contains('address') -or $nameL.Contains('地址') -or
+            $nameL.Contains('omnibox') -or $nameL.Contains('搜索或输入网址') -or
+            $nameL.Contains('search or enter url') -or $nameL.Contains('location') -or
+            $clsL.Contains('omnibox') -or $clsL.Contains('address') -or $clsL.Contains('toolbar') -or
+            $aidL.Contains('omnibox') -or $aidL.Contains('address') -or $aidL.Contains('urlbar') -or
+            $aidL.Contains('location')
+        if ($addressLike) {{ $score += 50 }}
+        if ($aidL.Length -gt 0 -and $addressLike) {{ $score += 10 }}
+    }} catch {{ }}
+
     foreach ($raw in $candidates) {{
         if ([string]::IsNullOrWhiteSpace($raw)) {{ continue }}
         $value = $raw.Trim()
-        if ($value -match '^(https?://|chrome://|edge://|about:|file:)' -or
-            $value -match '^(localhost|([a-zA-Z0-9-]+\.)+[a-zA-Z]{{2,}}|\d{{1,3}}(\.\d{{1,3}}){{3}})(:\d{{2,5}})?([/?#].*)?$') {{
-            Write-Output $value
-            exit 0
+        $isUrl = $value -match '^(https?://|chrome://|edge://|about:|file:)' -or
+            $value -match '^(localhost|([a-zA-Z0-9-]+\.)+[a-zA-Z]{{2,}}|\d{{1,3}}(\.\d{{1,3}}){{3}})(:\d{{2,5}})?([/?#].*)?$'
+        if (-not $isUrl) {{ continue }}
+
+        $urlScore = $score
+        if ($value -match '^https?://') {{ $urlScore += 30 }}
+
+        if ($urlScore -ge 60 -and $urlScore -gt $bestScore) {{
+            $bestScore = $urlScore
+            $bestUrl = $value
         }}
     }}
+}}
+
+if ($bestUrl) {{
+    Write-Output $bestUrl
+    exit 0
 }}
 "#
     );
@@ -1569,7 +2104,6 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
     use uiautomation::UIAutomation;
 
     let automation = UIAutomation::new().ok()?;
-    // Handle 内部字段在 0.24.4 变为私有，改用 From trait 构造
     let window_element = automation.element_from_handle(Handle::from(hwnd)).ok()?;
 
     let mut best_match: Option<(i32, String)> = None;
@@ -1587,35 +2121,50 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
 
         let name = control.get_name().unwrap_or_default();
         let class_name = control.get_classname().unwrap_or_default();
+        let automation_id = control.get_automation_id().unwrap_or_default();
         let name_lower = name.to_lowercase();
         let class_lower = class_name.to_lowercase();
+        let aid_lower = automation_id.to_lowercase();
         let address_like = name_lower.contains("address")
             || name_lower.contains("地址")
             || name_lower.contains("location")
             || name_lower.contains("omnibox")
+            || name_lower.contains("搜索或输入网址")
+            || name_lower.contains("search or enter url")
             || class_lower.contains("omnibox")
-            || class_lower.contains("address");
+            || class_lower.contains("address")
+            || class_lower.contains("toolbar")
+            || aid_lower.contains("omnibox")
+            || aid_lower.contains("address")
+            || aid_lower.contains("urlbar")
+            || aid_lower.contains("location");
 
-        let mut candidates = Vec::new();
+        let mut candidates: Vec<(String, &'static str)> = Vec::new();
         if let Ok(pattern) = control.get_pattern::<UIValuePattern>() {
             if let Ok(value) = pattern.get_value() {
-                candidates.push(value);
+                candidates.push((value, "ValuePattern"));
             }
         }
         if let Ok(pattern) = control.get_pattern::<UILegacyIAccessiblePattern>() {
             if let Ok(value) = pattern.get_value() {
-                candidates.push(value);
+                candidates.push((value, "LegacyIAccessible"));
             }
         }
-        candidates.push(name.clone());
+        candidates.push((name.clone(), "Name"));
 
-        for raw in candidates {
-            let Some(url) = normalize_browser_url_candidate(&raw) else {
+        for (raw, source) in &candidates {
+            let Some(url) = normalize_browser_url_candidate(raw) else {
+                if address_like || (raw.starts_with("http") && !raw.contains(' ')) {
+                    log::debug!(
+                        "UIA 控件: type={:?} aid={} name={} cls={} src={} raw='{}' → normalize=None",
+                        control_type, automation_id, name, class_name, source, raw
+                    );
+                }
                 continue;
             };
 
             let mut score = match control_type {
-                ControlType::Edit => 35,
+                ControlType::Edit => 40,
                 ControlType::Document => 15,
                 _ => 0,
             };
@@ -1625,9 +2174,18 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
             }
             if raw.starts_with("http://") || raw.starts_with("https://") {
                 score += 30;
-            } else if raw == class_name || raw == name {
+            } else if *raw == class_name || *raw == name {
                 score += 5;
             }
+
+            if !aid_lower.is_empty() && address_like {
+                score += 10;
+            }
+
+            log::debug!(
+                "UIA 命中: type={:?} aid={} name={} cls={} src={} raw='{}' url={} score={}",
+                control_type, automation_id, name, class_name, source, raw, url, score
+            );
 
             if score >= 60
                 && best_match
@@ -1640,14 +2198,37 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
         }
     };
 
-    // 先扫描全部 Edit 控件。
-    // Chrome/Chromium 的地址栏在不同版本和 UI 状态下不一定是第一个 Edit；
-    // 只取 find_first 很容易误拿到页面内搜索框，导致 URL 统计长期为空。
+    if let Ok(name_elements) = automation
+        .create_matcher()
+        .from(window_element.clone())
+        .control_type(ControlType::Edit)
+        .timeout(200)
+        .find_all()
+    {
+        for elem in name_elements {
+            if let Ok(aid) = elem.get_automation_id() {
+                let aid_lower = aid.to_lowercase();
+                if aid_lower.contains("omnibox")
+                    || aid_lower.contains("address")
+                    || aid_lower.contains("urlbar")
+                    || aid_lower.contains("location")
+                {
+                    inspect_control(elem, &mut best_match);
+                    if let Some((score, url)) = &best_match {
+                        if *score >= 90 {
+                            return Some(url.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if let Ok(edits) = automation
         .create_matcher()
         .from(window_element.clone())
         .control_type(ControlType::Edit)
-        .timeout(300)
+        .timeout(500)
         .find_all()
     {
         for edit in edits {
@@ -1655,18 +2236,16 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
         }
     }
     if let Some((score, url)) = &best_match {
-        if *score >= 85 {
+        if *score >= 80 {
             return Some(url.clone());
         }
     }
 
-    // 再扫 Document 控件作为补充。
-    // 某些浏览器或特殊页面会把可读 URL 暴露在 Document，而不是地址栏 Edit。
     if let Ok(docs) = automation
         .create_matcher()
         .from(window_element)
         .control_type(ControlType::Document)
-        .timeout(300)
+        .timeout(500)
         .find_all()
     {
         for doc in docs {
@@ -1675,6 +2254,119 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
     }
 
     best_match.map(|(_, url)| url)
+}
+
+#[cfg(target_os = "windows")]
+fn get_url_via_enum_child_windows(hwnd: isize) -> Option<String> {
+    use std::sync::{Arc, Mutex};
+    use winapi::um::winuser::{
+        EnumChildWindows, GetClassNameW, GetWindowLongPtrW, SendMessageW, WM_GETTEXT,
+        WM_GETTEXTLENGTH,
+    };
+    use winapi::shared::minwindef::{LPARAM, WPARAM};
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    type ChildResults = Vec<(String, String)>;
+    let results: Arc<Mutex<ChildResults>> = Arc::new(Mutex::new(Vec::new()));
+    let results_ptr = Arc::as_ptr(&results) as LPARAM;
+
+    unsafe extern "system" fn enum_callback(
+        child_hwnd: winapi::shared::windef::HWND,
+        lparam: LPARAM,
+    ) -> i32 {
+        let results = &*(lparam as *const Mutex<ChildResults>);
+
+        let mut class_name: [u16; 256] = [0; 256];
+        let len = GetClassNameW(child_hwnd, class_name.as_mut_ptr(), 256);
+        if len == 0 {
+            return 1;
+        }
+        let class = OsString::from_wide(&class_name[..len as usize])
+            .to_string_lossy()
+            .to_string();
+
+        let class_lower = class.to_lowercase();
+        let is_address_bar = class_lower.contains("omnibox")
+            || class_lower.contains("address")
+            || class_lower.contains("urlbar")
+            || class_lower.contains("toolbar")
+            || class_lower.contains("edit");
+
+        if !is_address_bar {
+            return 1;
+        }
+
+        let style = GetWindowLongPtrW(child_hwnd, winapi::um::winuser::GWL_STYLE) as u32;
+        let is_visible = (style & winapi::um::winuser::WS_VISIBLE) != 0;
+        if !is_visible {
+            return 1;
+        }
+
+        let text_len = SendMessageW(child_hwnd, WM_GETTEXTLENGTH, 0, 0) as usize;
+        if text_len == 0 || text_len > 4096 {
+            return 1;
+        }
+
+        let mut buf: Vec<u16> = vec![0; text_len + 1];
+        SendMessageW(
+            child_hwnd,
+            WM_GETTEXT,
+            (text_len + 1) as WPARAM,
+            buf.as_mut_ptr() as LPARAM,
+        );
+
+        let text = OsString::from_wide(&buf[..text_len])
+            .to_string_lossy()
+            .to_string();
+
+        if !text.is_empty() {
+            if let Ok(mut guard) = results.lock() {
+                guard.push((class, text));
+            }
+        }
+
+        1
+    }
+
+    unsafe {
+        EnumChildWindows(hwnd as _, Some(enum_callback), results_ptr);
+    }
+
+    let all_results = match Arc::try_unwrap(results) {
+        Ok(mutex) => mutex.into_inner().unwrap_or_default(),
+        Err(arc) => arc.lock().unwrap_or_else(|p| p.into_inner()).clone(),
+    };
+
+    let mut best: Option<(i32, String)> = None;
+    for (class, text) in &all_results {
+        let class_lower = class.to_lowercase();
+        let is_omnibox = class_lower.contains("omnibox");
+        let is_address = class_lower.contains("address") || class_lower.contains("urlbar");
+        let is_toolbar = class_lower.contains("toolbar");
+        let is_edit = class_lower.contains("edit");
+
+        if let Some(url) = normalize_browser_url_candidate(text) {
+            let mut score = 0;
+            if is_omnibox { score += 90; }
+            else if is_address { score += 80; }
+            else if is_toolbar { score += 60; }
+            else if is_edit { score += 40; }
+
+            if text.starts_with("https://") { score += 10; }
+            else if text.starts_with("http://") { score += 5; }
+
+            if best.as_ref().map(|(s, _)| score > *s).unwrap_or(true) {
+                best = Some((score, url));
+            }
+        }
+    }
+
+    if let Some((score, url)) = &best {
+        log::debug!("EnumChildWindows 命中: score={} url={}", score, url);
+    }
+
+    best.map(|(_, url)| url)
 }
 
 #[cfg(test)]

@@ -1159,6 +1159,47 @@ async fn route_request(
         ("GET", "/v1/platform") => {
             Ok(HttpResponse::json(200, &serde_json::json!(runtime_platform())))
         }
+        ("POST", "/v1/verify-password") => {
+            parse_json_body::<serde_json::Value>(&request)
+                .and_then(|body| {
+                    let password = body.get("password")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let guard = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+                    let matched = guard.config.app_password == password;
+                    Ok(HttpResponse::json(200, &serde_json::json!({ "matched": matched })))
+                })
+        }
+        ("POST", "/v1/change-password") => {
+            parse_json_body::<serde_json::Value>(&request)
+                .and_then(|body| {
+                    let old_password = body.get("old_password")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let new_password = body.get("new_password")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    {
+                        let guard = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+                        if guard.config.app_password != old_password {
+                            return Err(AppError::Unknown("原密码不正确".to_string()));
+                        }
+                    }
+                    if new_password.trim().is_empty() {
+                        return Err(AppError::Unknown("新密码不能为空".to_string()));
+                    }
+                    let mut config = {
+                        let guard = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+                        guard.config.clone()
+                    };
+                    config.app_password = new_password;
+                    crate::commands::persist_app_config(config, app.clone(), state)?;
+                    Ok(HttpResponse::json(200, &serde_json::json!({ "ok": true })))
+                })
+        }
         ("GET", "/v1/stats/range-daily-totals") => {
             let date_from = request.query.get("date_from").cloned();
             let date_to = request.query.get("date_to").cloned();
@@ -1424,6 +1465,8 @@ fn request_auth_mode(method: &str, path: &str) -> RequestAuthMode {
         || path.starts_with("/v1/node-gateway/")
         || path.starts_with("/v1/telegram/")
         || path.starts_with("/v1/domains/")
+        || path.starts_with("/v1/verify-password")
+        || path.starts_with("/v1/change-password")
     {
         return RequestAuthMode::None;
     }

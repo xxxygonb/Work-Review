@@ -2319,6 +2319,24 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
             active_window.browser_url = Some(resolved_url);
         }
 
+        if active_window.browser_url.is_none()
+            && work_review_core::categorize::is_browser_app(&active_window.app_name)
+            && !active_window.window_title.is_empty()
+        {
+            if let Some(url) = monitor::resolve_browser_url_for_window(
+                &active_window.app_name,
+                &active_window.window_title,
+            ) {
+                log::debug!(
+                    "浏览器 URL 二次探测命中: {} | {} -> {}",
+                    active_window.app_name,
+                    active_window.window_title,
+                    url
+                );
+                active_window.browser_url = Some(url);
+            }
+        }
+
         // 浏览器 URL 存在瞬时采集失败时，尽量复用同窗口最近一次成功值，减少统计断裂。
         const BROWSER_URL_STICKY_GAP_SECS: i64 = 120;
         if active_window.browser_url.is_none()
@@ -4525,6 +4543,8 @@ async fn main() {
             commands::rotate_localhost_api_token,
             commands::get_config,
             commands::save_config,
+            commands::verify_password,
+            commands::change_password,
 
             commands::pause_recording,
             commands::resume_recording,

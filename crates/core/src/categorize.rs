@@ -631,12 +631,68 @@ fn extract_url_from_title(window_title: &str) -> Option<String> {
     }
 
     for part in title.rsplit(" - ") {
-        if let Some(url) = normalize_browser_url_candidate(part) {
+        let trimmed = part.trim();
+        if let Some(url) = normalize_browser_url_candidate(trimmed) {
             return Some(url);
         }
     }
 
-    extract_url_from_text(title)
+    for part in title.rsplit(" — ") {
+        let trimmed = part.trim();
+        if let Some(url) = normalize_browser_url_candidate(trimmed) {
+            return Some(url);
+        }
+    }
+
+    if let Some(url) = extract_url_from_text(title) {
+        return Some(url);
+    }
+
+    extract_domain_like_from_title(title)
+}
+
+fn extract_domain_like_from_title(title: &str) -> Option<String> {
+    static DOMAIN_IN_TITLE_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r#"(?i)\b((?:[a-z0-9-]+\.)+[a-z]{2,})(?:/|\s|$)"#,
+        )
+        .expect("domain-in-title regex should compile")
+    });
+
+    let caps = DOMAIN_IN_TITLE_RE.captures_iter(title).collect::<Vec<_>>();
+    if caps.is_empty() {
+        return None;
+    }
+
+    for cap in caps.iter().rev() {
+        if let Some(domain) = cap.get(1) {
+            let d = domain.as_str();
+            let lower = d.to_lowercase();
+            if lower.ends_with(".com")
+                || lower.ends_with(".cn")
+                || lower.ends_with(".net")
+                || lower.ends_with(".org")
+                || lower.ends_with(".io")
+                || lower.ends_with(".dev")
+                || lower.ends_with(".app")
+                || lower.ends_with(".co")
+                || lower.ends_with(".me")
+                || lower.ends_with(".cc")
+                || lower.ends_with(".com.cn")
+                || lower.ends_with(".org.cn")
+                || lower.ends_with(".net.cn")
+                || lower.ends_with(".gov.cn")
+                || lower.ends_with(".edu.cn")
+            {
+                let url = format!("https://{}", d);
+                if !is_merged_domain(&url) {
+                    return Some(url);
+                }
+            }
+        }
+    }
+
+    None
 }
 fn categorize_app_with_policy(
     app_name: &str,

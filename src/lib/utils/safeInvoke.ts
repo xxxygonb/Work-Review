@@ -33,6 +33,8 @@ async function discoverApiBaseUrl(): Promise<string | null> {
 const COMMAND_ENDPOINT_MAP: Record<string, (args: Record<string, unknown>) => { method: string; path: string; body?: unknown }> = {
   get_config: () => ({ method: 'GET', path: '/v1/config' }),
   save_config: (args) => ({ method: 'PUT', path: '/v1/config', body: args.config }),
+  verify_password: (args) => ({ method: 'POST', path: '/v1/verify-password', body: { password: args.password } }),
+  change_password: (args) => ({ method: 'POST', path: '/v1/change-password', body: { old_password: args.old_password, new_password: args.new_password } }),
   get_recording_state: () => ({ method: 'GET', path: '/v1/recording-state' }),
   get_platform: () => ({ method: 'GET', path: '/v1/platform' }),
   get_today_stats: () => ({ method: 'GET', path: '/v1/stats/today' }),
@@ -229,6 +231,10 @@ async function httpFallback<T>(command: string, args: Record<string, unknown>): 
   ]);
   if (CONTENT_WRAPPED_COMMANDS.has(command) && data && typeof data === 'object' && 'content' in data) {
     return data.content as T;
+  }
+
+  if (command === 'verify_password' && data && typeof data === 'object' && 'matched' in data) {
+    return (data as { matched: boolean }).matched as T;
   }
 
   return data as T;

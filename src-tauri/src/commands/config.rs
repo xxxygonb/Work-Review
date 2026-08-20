@@ -54,6 +54,41 @@ pub async fn get_data_dir(state: State<'_, Arc<Mutex<AppState>>>) -> Result<Stri
     Ok(path_for_display(&state.data_dir))
 }
 
+/// 验证应用密码
+#[tauri::command]
+pub async fn verify_password(
+    password: String,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<bool, AppError> {
+    let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    Ok(state.config.app_password == password)
+}
+
+/// 修改应用密码
+#[tauri::command]
+pub async fn change_password(
+    old_password: String,
+    new_password: String,
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
+    {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        if state.config.app_password != old_password {
+            return Err(AppError::Unknown("原密码不正确".to_string()));
+        }
+    }
+    if new_password.trim().is_empty() {
+        return Err(AppError::Unknown("新密码不能为空".to_string()));
+    }
+    let mut config = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        state.config.clone()
+    };
+    config.app_password = new_password;
+    persist_app_config(config, app, state.inner())
+}
+
 /// 获取默认数据目录
 #[tauri::command]
 pub async fn get_default_data_dir() -> Result<String, AppError> {
