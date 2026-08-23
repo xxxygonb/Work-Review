@@ -4336,6 +4336,23 @@ async fn main() {
             if let Err(e) = localhost_api::sync_localhost_api_runtime(app.handle(), state.inner()) {
                 log::warn!("初始化本地 API 失败: {e}");
             }
+
+            if launch_args_contain_autostart(&launch_args) {
+                let api_not_running = {
+                    let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
+                    !state_guard.localhost_api_runtime.running
+                };
+                if api_not_running {
+                    log::info!("开机自启动：强制启动本地 API（Web 端）");
+                    {
+                        let mut state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
+                        state_guard.config.localhost_api_enabled = true;
+                    }
+                    if let Err(e) = localhost_api::sync_localhost_api_runtime(app.handle(), state.inner()) {
+                        log::warn!("开机自启动：强制启动本地 API 失败: {e}");
+                    }
+                }
+            }
             // [本地化改造] Telegram Bot 已移除
 
             // 创建 Tauri v2 系统托盘

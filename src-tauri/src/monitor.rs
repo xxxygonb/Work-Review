@@ -168,8 +168,9 @@ pub fn clean_browser_window_title(title: &str, app_name: &str) -> String {
         ""
     };
 
-    // 按 " - " 分段，过滤掉浏览器内部信息段
-    let segments: Vec<&str> = title.split(" - ").collect();
+    // 按 " - " 或 " — " 分段，过滤掉浏览器内部信息段
+    let normalized_title = title.replace(" — ", " - ");
+    let segments: Vec<&str> = normalized_title.split(" - ").collect();
     if segments.len() <= 1 {
         return title.to_string();
     }
@@ -462,23 +463,49 @@ fn decode_mozlz4_bytes(data: &[u8]) -> std::result::Result<Vec<u8>, String> {
     Ok(out)
 }
 
+const BROWSER_TITLE_SUFFIXES: &[&str] = &[
+    " — Mozilla Firefox",
+    " - Mozilla Firefox",
+    " — Firefox",
+    " - Firefox",
+    " — Google Chrome",
+    " - Google Chrome",
+    " — Microsoft Edge",
+    " - Microsoft Edge",
+    " — Brave",
+    " - Brave",
+    " — Opera",
+    " - Opera",
+    " — Vivaldi",
+    " - Vivaldi",
+    " — Safari",
+    " - Safari",
+    " — Arc",
+    " - Arc",
+    " — Zen Browser",
+    " - Zen Browser",
+    " — Zen",
+    " - Zen",
+    " — Cent Browser",
+    " - Cent Browser",
+    " — Tabbit",
+    " - Tabbit",
+];
+
+fn strip_browser_title_suffix(title: &str) -> &str {
+    let mut result = title;
+    for suffix in BROWSER_TITLE_SUFFIXES {
+        if let Some(stripped) = result.strip_suffix(suffix) {
+            result = stripped;
+            break;
+        }
+    }
+    result.trim()
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 fn normalize_session_store_title(value: &str) -> String {
-    value
-        .split(" - Mozilla Firefox")
-        .next()
-        .unwrap_or(value)
-        .split(" - Firefox")
-        .next()
-        .unwrap_or(value)
-        .split(" - Zen Browser")
-        .next()
-        .unwrap_or(value)
-        .split(" - Zen")
-        .next()
-        .unwrap_or(value)
-        .trim()
-        .to_string()
+    strip_browser_title_suffix(value).to_string()
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
@@ -549,10 +576,19 @@ fn extract_active_tab_url_from_session_store_value(
             if !normalized_window_title.is_empty() && !entry_title.is_empty() {
                 if entry_title == normalized_window_title {
                     score += 1_000;
+                } else if normalized_window_title.starts_with(&entry_title)
+                    || entry_title.starts_with(&normalized_window_title)
+                {
+                    let len_ratio = if normalized_window_title.len() >= entry_title.len() {
+                        entry_title.len() as f64 / normalized_window_title.len() as f64
+                    } else {
+                        normalized_window_title.len() as f64 / entry_title.len() as f64
+                    };
+                    score += 600 + (len_ratio * 300.0) as i32;
                 } else if entry_title.contains(&normalized_window_title)
                     || normalized_window_title.contains(&entry_title)
                 {
-                    score += 600;
+                    score += 400;
                 }
             }
             if window_index == selected_window_index {
@@ -582,7 +618,15 @@ fn extract_active_tab_url_from_session_store_value(
         }
     }
 
-    best_match.map(|(_, _, url)| url)
+    best_match
+        .filter(|(score, _, _)| {
+            if normalized_window_title.is_empty() {
+                true
+            } else {
+                *score >= 400
+            }
+        })
+        .map(|(_, _, url)| url)
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
@@ -1505,7 +1549,9 @@ fn extract_title_keywords(window_title: &str) -> Vec<String> {
         })
         .unwrap_or_else(|| cleaned.clone());
 
-    let segments: Vec<&str> = without_tab_count.split(" - ").collect();
+    let without_browser_suffix = strip_browser_title_suffix(&without_tab_count).to_string();
+    let normalized_for_split = without_browser_suffix.replace(" — ", " - ");
+    let segments: Vec<&str> = normalized_for_split.split(" - ").collect();
     let main_title = segments.first().copied().unwrap_or(&without_tab_count);
 
     let main_trimmed = main_title.trim();
@@ -1525,8 +1571,10 @@ fn extract_title_keywords(window_title: &str) -> Vec<String> {
     }
 
     if without_tab_count != cleaned {
-        let raw_segments: Vec<&str> = cleaned.split(" - ").collect();
-        let raw_main = raw_segments.first().copied().unwrap_or(&cleaned).trim();
+        let raw_stripped = strip_browser_title_suffix(&cleaned).to_string();
+        let raw_normalized = raw_stripped.replace(" — ", " - ");
+        let raw_segments: Vec<&str> = raw_normalized.split(" - ").collect();
+        let raw_main = raw_segments.first().copied().unwrap_or(&raw_normalized).trim();
         if raw_main.len() >= 3 && !keywords.iter().any(|k| k == raw_main) {
             keywords.push(raw_main.chars().take(50).collect());
         }
@@ -1654,6 +1702,91 @@ fn read_latest_url_from_chromium_history(history_path: &Path) -> Option<String> 
 }
 
 #[cfg(target_os = "windows")]
+fn firefox_places_history_latest_url(app_name: &str, window_title: &str) -> Option<String> {
+    let app_lower = app_name.to_lowercase();
+    if !app_lower.contains("firefox")
+        && !app_lower.contains("zen")
+        && !app_lower.contains("librewolf")
+        && !app_lower.contains("waterfox")
+    {
+        return None;
+    }
+
+    let base_dir = firefox_family_session_store_base_dir(&app_lower)?;
+    let ini_path = base_dir.join("profiles.ini");
+    let ini_content = std::fs::read_to_string(&ini_path).ok()?;
+    let profile_dir = firefox_family_profile_dir_from_ini(&base_dir, &ini_content)?;
+
+    let places_path = profile_dir.join("places.sqlite");
+    if !places_path.exists() {
+        log::debug!("Firefox places.sqlite: 文件不存在: {:?}", places_path);
+        return None;
+    }
+
+    let title_keywords = extract_title_keywords(window_title);
+    if title_keywords.is_empty() {
+        return None;
+    }
+
+    let tmp_dir = std::env::temp_dir();
+    let tmp_path = tmp_dir.join(format!(
+        "wr_places_{}_{}",
+        std::process::id(),
+        places_path.file_name()?.to_string_lossy().as_ref()
+    ));
+
+    if std::fs::copy(&places_path, &tmp_path).is_err() {
+        log::debug!("Firefox places.sqlite: 复制失败: {:?}", places_path);
+        return None;
+    }
+
+    let result = (|| {
+        let conn = rusqlite::Connection::open_with_flags(
+            &tmp_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .ok()?;
+
+        for keyword in &title_keywords {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT p.url FROM moz_places p JOIN moz_historyvisits v ON p.id = v.place_id \
+                     WHERE p.title LIKE ?1 AND p.url LIKE 'http%' \
+                     ORDER BY v.visit_date DESC LIMIT 1",
+                )
+                .ok()?;
+
+            let pattern = format!("%{}%", keyword);
+            if let Ok(url) = stmt.query_row([&pattern.as_str()], |row| row.get::<_, String>(0)) {
+                if url.starts_with("http://") || url.starts_with("https://") {
+                    log::debug!("Firefox places.sqlite 命中: keyword='{}' url={}", keyword, url);
+                    return Some(url);
+                }
+            }
+        }
+
+        let url: String = conn
+            .query_row(
+                "SELECT p.url FROM moz_places p JOIN moz_historyvisits v ON p.id = v.place_id \
+                 WHERE p.url LIKE 'http%' ORDER BY v.visit_date DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok()?;
+
+        if url.starts_with("http://") || url.starts_with("https://") {
+            log::debug!("Firefox places.sqlite 最近URL兜底: url={}", url);
+            Some(url)
+        } else {
+            None
+        }
+    })();
+
+    let _ = std::fs::remove_file(&tmp_path);
+    result
+}
+
+#[cfg(target_os = "windows")]
 fn query_browser_url_windows_unprotected(
     app_name: &str,
     window_title: &str,
@@ -1662,16 +1795,28 @@ fn query_browser_url_windows_unprotected(
     let started_at = Instant::now();
 
     let app_lower = app_name.to_lowercase();
-    if app_lower.contains("firefox") || app_lower.contains("zen") || app_lower.contains("librewolf") || app_lower.contains("waterfox") {
+    let is_firefox_family = app_lower.contains("firefox")
+        || app_lower.contains("zen")
+        || app_lower.contains("librewolf")
+        || app_lower.contains("waterfox");
+
+    if is_firefox_family {
         if let Some(url) = firefox_family_session_store_url(app_name, window_title) {
-            log::debug!("浏览器 URL 命中 Firefox Session Store: {url}");
+            log::debug!("浏览器 URL 命中 Session Store: {url}");
             return Some(url);
         }
     }
 
-    if let Some(url) = chromium_history_latest_url(app_name, window_title) {
-        log::debug!("浏览器 URL 命中 Chromium History: {url}");
-        return Some(url);
+    if is_firefox_family {
+        if let Some(url) = firefox_places_history_latest_url(app_name, window_title) {
+            log::debug!("浏览器 URL 命中 Firefox places.sqlite: {url}");
+            return Some(url);
+        }
+    } else {
+        if let Some(url) = chromium_history_latest_url(app_name, window_title) {
+            log::debug!("浏览器 URL 命中 Chromium History: {url}");
+            return Some(url);
+        }
     }
 
     let cdp_result = get_url_via_cdp(app_name, hwnd);

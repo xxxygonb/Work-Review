@@ -1,5 +1,79 @@
 # AI 修改记录
 
+## 2026-08-23
+
+### 9. 开机自启动时同步启动Web端（本地API服务）
+
+**问题**：设置开机自启动后，只启动了桌面端窗口，Web端（本地localhost API服务）没有跟随自启动启动。用户通过浏览器访问Web端时无法获取数据。
+
+**根因分析**：
+1. 开机自启动只负责拉起桌面端进程（带 `--autostart` 参数），不检查本地API服务是否运行
+2. `localhost_api_enabled` 配置默认为 `false`，即使自启动也不会启动API服务
+3. Web端依赖本地API服务提供数据，API未启动则Web端完全不可用
+
+**修复方案**：
+在 `setup` 阶段，检测到自启动参数时，若本地API服务未运行，则强制将 `localhost_api_enabled` 设为 `true` 并调用 `sync_localhost_api_runtime` 启动服务。
+
+#### 修改文件
+- `src-tauri/src/main.rs` — 在 `setup` 钩子中，`sync_localhost_api_runtime` 初始化之后，检测 `launch_args_contain_autostart` 且 API 未运行时，强制启用并启动本地API服务
+
+### 8. 修复浏览器URL记录错误（通用化，覆盖所有浏览器）
+
+**问题**：浏览器活动记录的URL与窗口标题对应不上，记录的是错误的URL（可能是上一次打开的网站）。例如窗口标题为"知乎 - 有问题，就会有答案 — Mozilla Firefox"，但记录的URL是 `https://wgame80.com`。
+
+**根因分析**：
+1. **浏览器窗口标题使用em dash（—）分隔**：部分浏览器（如Firefox）在Windows上使用 `—`（U+2014）而非 ` - `（连字符）分隔页面标题和浏览器名。`normalize_session_store_title` 和 `extract_title_keywords` 只处理 ` - BrowserName`，不处理 ` — BrowserName`，导致标题规范化失败，无法正确匹配标签页
+2. **Session Store标题匹配评分逻辑不够精确**：当标题不完全匹配时，仅靠窗口/标签页索引选择URL，可能选到非当前标签页的URL
+3. **Firefox家族缺少History数据库兜底方案**：Chrome/Edge已有Chromium History数据库读取方案，但Firefox/Zen/LibreWolf/Waterfox没有类似的 `places.sqlite` 读取方案。当Session Store匹配失败时，没有其他方式获取正确URL
+4. **浏览器后缀处理分散且不统一**：各函数各自硬编码浏览器名后缀，且只覆盖部分浏览器，新增浏览器时需要修改多处
+
+**修复方案（通用化设计，覆盖所有浏览器）**：
+
+1. **定义统一的浏览器标题后缀常量** `BROWSER_TITLE_SUFFIXES`：
+   - 包含所有已知浏览器的 ` - ` 和 ` — ` 两种分隔变体
+   - 覆盖：Google Chrome、Microsoft Edge、Brave、Opera、Vivaldi、Safari、Arc、Mozilla Firefox、Firefox、Zen Browser、Zen、Cent Browser、Tabbit
+   - 新增浏览器只需在此常量中追加一行
+
+2. **新增通用函数 `strip_browser_title_suffix`**：
+   - 基于统一后缀列表，从窗口标题中移除浏览器名后缀
+   - 所有涉及浏览器标题解析的函数统一调用此函数
+
+3. **`normalize_session_store_title` 重构**：改为调用 `strip_browser_title_suffix`，不再硬编码
+
+4. **`extract_title_keywords` 重构**：
+   - 使用 `strip_browser_title_suffix` 移除浏览器名后缀（覆盖所有浏览器）
+   - 使用 `replace(" — ", " - ")` 统一em dash为连字符后再分段（覆盖所有浏览器）
+
+5. **Session Store评分逻辑增强**：
+   - 增加 `starts_with` 匹配层级：标题前缀匹配给予 600 + 长度比例×300 分（比 `contains` 的 400 分更高）
+   - 增加最低分数阈值：当窗口标题非空时，要求匹配分数 ≥ 400 才返回URL，避免标题不匹配时返回错误标签页的URL
+   - 标题为空时跳过阈值检查（依赖窗口/标签页索引选择）
+
+6. **新增Firefox places.sqlite History数据库读取方案**（`firefox_places_history_latest_url`）：
+   - 通过 `profiles.ini` 定位Firefox profile目录
+   - 复制 `places.sqlite` 到临时目录（避免锁文件冲突）
+   - 使用 `rusqlite` 查询 `moz_places` + `moz_historyvisits` 表
+   - 先用窗口标题关键词匹配（`extract_title_keywords`），再兜底查询最近访问URL
+
+7. **`clean_browser_window_title` 增加em dash统一处理**：将 ` — ` 替换为 ` - ` 后再分段，覆盖所有浏览器
+
+8. **URL获取优先级统一化**（`query_browser_url_windows_unprotected`）：
+   ```
+   Firefox家族: Session Store → places.sqlite → CDP → UIA → EnumChildWindows → PowerShell → 标题推断
+   Chromium家族: History DB → CDP → UIA → EnumChildWindows → PowerShell → 标题推断
+   ```
+
+#### 修改文件
+- `src-tauri/src/monitor.rs` —
+  - `BROWSER_TITLE_SUFFIXES`：新增统一浏览器标题后缀常量
+  - `strip_browser_title_suffix`：新增通用浏览器后缀移除函数
+  - `normalize_session_store_title`：重构为调用 `strip_browser_title_suffix`
+  - `extract_active_tab_url_from_session_store_value`：增加 `starts_with` 评分层级、最低分数阈值
+  - `firefox_places_history_latest_url`：新增Firefox places.sqlite History数据库读取方案
+  - `query_browser_url_windows_unprotected`：统一Firefox/Chromium的History DB优先级链
+  - `extract_title_keywords`：重构为使用 `strip_browser_title_suffix` + em dash统一处理
+  - `clean_browser_window_title`：增加em dash统一处理
+
 ## 2026-08-20
 
 ### 7. 深度优化浏览器URL记录（第三轮）
