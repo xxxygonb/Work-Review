@@ -33,7 +33,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [],
+    "resources": [
+      "../dist"
+    ],
     "copyright": "© 2026 WorkReview",
     "category": "Productivity",
     "shortDescription": "工作回顾与日报助手",

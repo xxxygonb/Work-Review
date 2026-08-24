@@ -1,6 +1,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
 
 const DEFAULT_API_PORT = 47831;
+const WEB_FRONTEND_PORT = 5173;
 const API_HOST = '127.0.0.1';
 
 let cachedBaseUrl: string | null = null;
@@ -10,8 +11,35 @@ function detectTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+/**
+ * 当浏览器直接访问 Web 端（http://localhost:5173 或 http://127.0.0.1:47831）时，
+ * 页面 origin 本身就是我们托管前端的 HTTP 服务器，同时承担反向代理 / API 入口。
+ * 这种场景无需探测端口，直接使用相对路径即可：
+ *   - 保证 100% 同源，不存在 CORS 预检 / 混合内容问题；
+ *   - 省去端口探测超时，首屏加载更快；
+ *   - 5173 会走同源代理到 47831，47831 本身就带 API。
+ */
+function originMatchesLocalServer(): string | null {
+  if (typeof window === 'undefined' || !window.location) return null;
+  const { hostname, port } = window.location;
+  const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  if (!isLoopback) return null;
+  const p = Number(port);
+  if (p === WEB_FRONTEND_PORT || p === DEFAULT_API_PORT || p === 47832 || p === 47833) {
+    return ''; // 空字符串即 baseUrl，等价于相对路径：/v1/xxx
+  }
+  return null;
+}
+
 async function discoverApiBaseUrl(): Promise<string | null> {
-  if (cachedBaseUrl) return cachedBaseUrl;
+  if (cachedBaseUrl !== null) return cachedBaseUrl;
+
+  // 浏览器直接访问 localhost:5173 / 127.0.0.1:47831 → 同源相对路径，跳过探测
+  const selfHosted = originMatchesLocalServer();
+  if (selfHosted !== null) {
+    cachedBaseUrl = selfHosted;
+    return cachedBaseUrl;
+  }
 
   const ports = [DEFAULT_API_PORT, 47832, 47833];
   for (const port of ports) {
@@ -29,6 +57,7 @@ async function discoverApiBaseUrl(): Promise<string | null> {
   }
   return null;
 }
+
 
 const COMMAND_ENDPOINT_MAP: Record<string, (args: Record<string, unknown>) => { method: string; path: string; body?: unknown }> = {
   get_config: () => ({ method: 'GET', path: '/v1/config' }),
@@ -189,10 +218,40 @@ const COMMAND_ENDPOINT_MAP: Record<string, (args: Record<string, unknown>) => { 
   get_app_icon: (args) => ({ method: 'GET', path: `/v1/app-icon/${encodeURIComponent(String(args.appName || ''))}?executablePath=${encodeURIComponent(String(args.executablePath || ''))}` }),
 };
 
+/**
+ * 从各种异常形态里尽量提取人类可读的错误详情。
+ * 很多时候 Promise reject 不是 Error 实例（或者 message 很模糊），
+ * 需要一层兜底，避免用户只能看到"undefined"或"请重试"。
+ */
+function extractInvokeError(e: unknown): { msg: string; detail?: string } {
+  if (e instanceof Error) {
+    // 如果 stack 里含有更具体的响应体（比如 "[safeInvoke] xxx 回退失败 (400): ..."），
+    // 就把响应体作为 detail 方便定位。
+    const m = e.message.match(/^(.*?)\s*\((\d{3})\):\s*([\s\S]*)$/);
+    if (m) {
+      return { msg: `${m[1]} (${m[2]})`, detail: m[3].slice(0, 300) };
+    }
+    return { msg: e.message };
+  }
+  if (typeof e === 'string' && e) {
+    return { msg: e };
+  }
+  if (e && typeof e === 'object') {
+    try {
+      return { msg: '调用异常', detail: JSON.stringify(e).slice(0, 300) };
+    } catch {
+      return { msg: String(e) };
+    }
+  }
+  return { msg: '未知错误' };
+}
+
 async function httpFallback<T>(command: string, args: Record<string, unknown>): Promise<T> {
   const baseUrl = await discoverApiBaseUrl();
-  if (!baseUrl) {
-    throw new Error(`[safeInvoke] 无法连接本地 API 服务器，命令: ${command}`);
+  // 注意：baseUrl=""（空串）是合法值 —— 代表当前 origin 同源的相对路径（/v1/xxx）。
+  // 仅当 baseUrl 真的为 null 时才表示端口探测失败 / 无法连接本地 API。
+  if (baseUrl === null) {
+    throw new Error(`[safeInvoke] 无法连接本地 API 服务器，请确认应用已启动 (命令: ${command})`);
   }
 
   const mapper = COMMAND_ENDPOINT_MAP[command];
@@ -239,6 +298,8 @@ async function httpFallback<T>(command: string, args: Record<string, unknown>): 
 
   return data as T;
 }
+
+export { extractInvokeError };
 
 export async function invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (tauriAvailable === null) {

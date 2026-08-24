@@ -58,6 +58,20 @@ pub struct LocalhostApiRuntime {
     pub shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
+/// Web 端（前端页面）静态资源服务器运行时，绑定端口 5173（与 Vite dev 端口一致）。
+/// 启动顺序：在本地 API（47831）启动成功后，额外拉起该服务，托管 dist 目录。
+#[derive(Default)]
+pub struct WebStaticRuntime {
+    pub running: bool,
+    pub bound_port: Option<u16>,
+    pub last_error: Option<String>,
+    pub shutdown_tx: Option<oneshot::Sender<()>>,
+    pub resolved_dist_dir: Option<PathBuf>,
+}
+
+pub const WEB_STATIC_PORT: u16 = 5173;
+pub const WEB_STATIC_HOST: &str = "127.0.0.1";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalhostApiStatusPayload {
@@ -118,7 +132,10 @@ enum RequestAuthMode {
 #[derive(Debug)]
 struct ParsedRequest {
     method: String,
+    /// 不包含查询串的纯路径，例如 `/v1/reports`
     path: String,
+    /// 请求行原始目标（含查询串），例如 `/v1/reports?date=2026-08-24`。用于反向代理转发时保留精确 URI。
+    raw_target: String,
     query: HashMap<String, String>,
     headers: HashMap<String, String>,
     body: Vec<u8>,
@@ -129,6 +146,8 @@ struct HttpResponse {
     reason: &'static str,
     content_type: &'static str,
     body: Vec<u8>,
+    /// 可选：是否对静态资源添加长缓存（如 /assets/*.js 带哈希）
+    cache_static: bool,
 }
 
 impl HttpResponse {
@@ -145,6 +164,7 @@ impl HttpResponse {
             reason,
             content_type: "application/json; charset=utf-8",
             body,
+            cache_static: false,
         }
     }
 
@@ -157,9 +177,35 @@ impl HttpResponse {
         )
     }
 
+    /// 静态文件响应：二进制内容 + 自定义 content-type；长缓存由调用方判断
+    fn static_bytes(content_type: &'static str, bytes: Vec<u8>, cache_static: bool) -> Self {
+        Self {
+            status: 200,
+            reason: "OK",
+            content_type,
+            body: bytes,
+            cache_static,
+        }
+    }
+
+    fn static_not_modified(content_type: &'static str) -> Self {
+        Self {
+            status: 304,
+            reason: "Not Modified",
+            content_type,
+            body: Vec::new(),
+            cache_static: true,
+        }
+    }
+
     fn to_bytes(&self) -> Vec<u8> {
+        let cache_header = if self.cache_static {
+            "Cache-Control: public, max-age=31536000, immutable\r\n"
+        } else {
+            "Cache-Control: no-store\r\n"
+        };
         let headers = format!(
-            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, X-Localhost-Api-Token\r\nAccess-Control-Max-Age: 86400\r\n\r\n",
+            "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n{cache_header}Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, X-Localhost-Api-Token\r\nAccess-Control-Max-Age: 86400\r\n\r\n",
             self.status,
             self.reason,
             self.content_type,
@@ -486,6 +532,20 @@ pub fn sync_localhost_api_runtime(app: &AppHandle, state: &Arc<Mutex<AppState>>)
         "本地 API 已监听在 http://{host}:{port}，token={}",
         mask_localhost_api_token(&token)
     );
+
+    // 本地 API 启动成功后，额外拉起 5173 端口的前端静态资源服务器（Web 端）
+    // 注意：失败不中断主 API 启动，仅记录日志（用户仍可通过 47831 端口备用入口访问前端）
+    match sync_web_static_server(app, state) {
+        Ok(()) => {}
+        Err(e) => {
+            log::warn!("启动 Web 端静态资源服务器（:5173）失败，用户可改用 http://{host}:{port}/ 访问前端：{e}");
+            // 记录到 web_static_runtime 的错误，设置页可观测
+            if let Ok(mut s) = state.lock() {
+                s.web_static_runtime.last_error = Some(format!("启动失败: {e}"));
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -614,6 +674,7 @@ async fn read_request(stream: &mut TcpStream) -> Result<Option<ParsedRequest>> {
     Ok(Some(ParsedRequest {
         method,
         path: parsed_url.path().to_string(),
+        raw_target: target.to_string(),
         query,
         headers,
         body,
@@ -825,16 +886,48 @@ async fn route_request(
         return HttpResponse::json(204, &serde_json::json!({}));
     }
 
-    match authorize_request(&request, state) {
-        Ok(()) => {}
-        Err(err) => {
-            let status = if matches!(err, AppError::Config(_)) {
-                401
-            } else {
-                500
-            };
-            return HttpResponse::error(status, err.to_string());
+    // 白名单：仅对明确的 API/回调/健康检查路径做 token 校验；
+    // 对于 GET 请求且路径不匹配 API 前缀，视作前端静态资源请求，跳过 token 校验
+    // 交给路由层末尾的 serve_static_from_dist 回退。
+    let is_api_path = request.path.starts_with("/v1/")
+        || request.path.starts_with("/wecom/")
+        || request.path.starts_with("/dingtalk/")
+        || request.path.starts_with("/generate-report")
+        || request.path == "/health"
+        || request.path == "/metrics"
+        || request.path.starts_with("/files/");
+    let needs_auth = request.method != "GET" || is_api_path;
+
+    // 【同源代理免鉴权】
+    // 来自前端 5173 端口的反向代理请求，由 handle_web_static_connection 构造请求字节时
+    // 追加了 `X-Forwarded-Host: localhost:5173` 头；而 Web 静态服务器只绑定 127.0.0.1，
+    // 外部主机无法直接访问，因此携带该头的请求可信任为「本机用户浏览器同源请求」，
+    // 跳过 token 校验。解决：浏览器打开 localhost:5173 时，前端没有 Tauri 注入 token，
+    // 若强行要求 token 则所有 API 调用都会 401 导致页面空数据。
+    let forwarded_from_web_static = request
+        .headers
+        .get("x-forwarded-host")
+        .map(|v| v.trim() == "localhost:5173")
+        .unwrap_or(false);
+
+    if needs_auth && !forwarded_from_web_static {
+        match authorize_request(&request, state) {
+            Ok(()) => {}
+            Err(err) => {
+                let status = if matches!(err, AppError::Config(_)) {
+                    401
+                } else {
+                    500
+                };
+                return HttpResponse::error(status, err.to_string());
+            }
         }
+    } else if forwarded_from_web_static {
+        log::debug!(
+            "本地 API: 同源代理请求，跳过 token 校验 (path={} {})",
+            request.method,
+            request.path
+        );
     }
 
     let result = match (request.method.as_str(), request.path.as_str()) {
@@ -1049,6 +1142,7 @@ async fn route_request(
                 reason: reason_phrase(resp.status),
                 content_type: "application/json; charset=utf-8",
                 body: resp.body.into_bytes(),
+                cache_static: false,
             })
         }
         ("GET", "/wecom/callback") => {
@@ -1073,6 +1167,7 @@ async fn route_request(
                 reason: reason_phrase(resp.status),
                 content_type,
                 body: resp.body.into_bytes(),
+                cache_static: false,
             })
         }
         ("POST", "/wecom/callback") => {
@@ -1104,6 +1199,7 @@ async fn route_request(
                 reason: reason_phrase(resp.status),
                 content_type,
                 body: resp.body.into_bytes(),
+                cache_static: false,
             })
         }
         ("POST", "/dingtalk/callback") => {
@@ -1130,6 +1226,7 @@ async fn route_request(
                 reason: reason_phrase(resp.status),
                 content_type: "application/json; charset=utf-8",
                 body: resp.body.into_bytes(),
+                cache_static: false,
             })
         }
         ("GET", "/v1/config") => {
@@ -1407,7 +1504,16 @@ async fn route_request(
                 Ok(HttpResponse::json(200, &serde_json::json!({ "supported": false })))
             }
         }
-        _ => Ok(HttpResponse::error(404, "未找到本地 API 路由")),
+        // 非 /v1/* 路径：47831 端口上的静态资源备用托管
+        // 当用户访问 http://127.0.0.1:47831/ 时也能拿到前端页面（5173 端口的备用入口）
+        _ => {
+            let dist_dir = resolve_web_dist_dir(&app);
+            if let Some(dist) = dist_dir {
+                Ok(serve_static_from_dist(&dist, &request.path))
+            } else {
+                Ok(HttpResponse::error(404, "未找到本地 API 路由，且未找到前端 dist 目录以托管静态资源"))
+            }
+        }
     };
 
     result.unwrap_or_else(|error| {
@@ -1505,6 +1611,467 @@ fn authorize_request(request: &ParsedRequest, state: &Arc<Mutex<AppState>>) -> R
     } else {
         Err(AppError::Config("缺少或无效的本地 API token".to_string()))
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Web 端（前端页面）静态资源服务器：端口 5173，托管 Vite 构建产物 dist/ 目录
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn mime_type_for(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else if lower.ends_with(".js") || lower.ends_with(".mjs") {
+        "application/javascript; charset=utf-8"
+    } else if lower.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if lower.ends_with(".json") {
+        "application/json; charset=utf-8"
+    } else if lower.ends_with(".svg") {
+        "image/svg+xml"
+    } else if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".ico") {
+        "image/x-icon"
+    } else if lower.ends_with(".flac") {
+        "audio/flac"
+    } else if lower.ends_with(".wasm") {
+        "application/wasm"
+    } else if lower.ends_with(".woff") {
+        "font/woff"
+    } else if lower.ends_with(".woff2") {
+        "font/woff2"
+    } else if lower.ends_with(".ttf") {
+        "font/ttf"
+    } else if lower.ends_with(".map") {
+        "application/json; charset=utf-8"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+fn is_long_cache_asset(url_path: &str) -> bool {
+    // Vite 构建的 /assets/* 文件都带内容哈希，可长缓存；其它路径（如 /index.html）短缓存
+    url_path.starts_with("/assets/")
+}
+
+/// 解析前端 dist 目录位置，多回退策略：
+/// 1) 通过 Tauri path_resolver 解析 Resource("dist")  —— 打包安装后场景
+/// 2) 项目根目录 ./dist  —— 开发/调试场景（cargo build -p work-review 后在项目根）
+/// 3) 可执行文件所在目录的 ../dist  —— 例如 target/debug/dist
+/// 4) 当前工作目录 dist
+pub fn resolve_web_dist_dir(app: &AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+
+    // 1) Tauri 资源目录：打包安装后 resources/dist
+    #[allow(deprecated)]
+    if let Ok(resolver) = app.path().resource_dir() {
+        let packaged = resolver.join("dist");
+        if packaged.join("index.html").exists() {
+            return Some(packaged);
+        }
+    }
+
+    // 2) 项目根目录：当前工作目录下 ./dist（用户在项目根启动或脚本启动）
+    let cwd_dist = std::env::current_dir()
+        .map(|c| c.join("dist"))
+        .ok()
+        .filter(|p| p.join("index.html").exists());
+    if let Some(p) = cwd_dist {
+        return Some(p);
+    }
+
+    // 2b) cargo run/build 场景：cwd = target/debug|release  →  项目根 = cwd/../..
+    if let Ok(cwd) = std::env::current_dir() {
+        for up in &["..", "../..", "../../.."] {
+            let candidate = cwd.join(up).join("dist");
+            if candidate.join("index.html").exists() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    // 3) exe 同级 ../dist （target/debug 或 release 下）
+    let exe_dist = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            // exe.parent()/../dist
+            exe.parent()
+                .map(|p| p.parent().map(|pp| pp.join("dist")).unwrap_or_else(|| p.join("dist")))
+        })
+        .filter(|p| p.join("index.html").exists());
+    if let Some(p) = exe_dist {
+        return Some(p);
+    }
+
+    // 3b) 打包/开发目录层级更深：基于 exe 向上 2~3 级找 dist
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            for up in &["..", "../..", "../../.."] {
+                let candidate = exe_dir.join(up).join("dist");
+                if candidate.join("index.html").exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+
+    // 4) exe 同级 dist
+    let exe_sibling = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .map(|p| p.join("dist"))
+        .filter(|p| p.join("index.html").exists());
+    if let Some(p) = exe_sibling {
+        return Some(p);
+    }
+
+    None
+}
+
+fn sanitize_url_path(url_path: &str) -> String {
+    // 剥离查询与锚点，防止路径穿越
+    let cleaned = url_path
+        .split('?')
+        .next()
+        .unwrap_or(url_path)
+        .split('#')
+        .next()
+        .unwrap_or(url_path)
+        .replace('\\', "/");
+    // 去除开头连续 /
+    let trimmed = cleaned.trim_start_matches('/');
+    // 阻止 .. 目录穿越：任何包含 ../ 或 == ".." 的都重定向回根
+    if trimmed.contains("..") {
+        return String::new();
+    }
+    trimmed.to_string()
+}
+
+pub fn serve_static_from_dist(dist_dir: &Path, url_path: &str) -> HttpResponse {
+    let rel = sanitize_url_path(url_path);
+    let file_path = if rel.is_empty() {
+        dist_dir.join("index.html")
+    } else {
+        let candidate = dist_dir.join(&rel);
+        if candidate.exists() && candidate.is_file() {
+            candidate
+        } else {
+            // SPA fallback：任何 /xxx 子路由、404 都回退 index.html（交给前端路由）
+            dist_dir.join("index.html")
+        }
+    };
+
+    match std::fs::read(&file_path) {
+        Ok(bytes) => {
+            let ct = mime_type_for(file_path.to_string_lossy().as_ref());
+            let cache = is_long_cache_asset(url_path);
+            HttpResponse::static_bytes(ct, bytes, cache)
+        }
+        Err(e) => {
+            // index.html 也读不到：返回明确错误
+            log::warn!("读取前端静态资源失败 {:?}: {e}", file_path);
+            HttpResponse::error(
+                503,
+                format!(
+                    "前端静态资源未就绪：未找到 dist/index.html，请确认已执行 `npm run build`。({e})"
+                ),
+            )
+        }
+    }
+}
+
+fn stop_web_static_locked(runtime: &mut WebStaticRuntime) -> Option<oneshot::Sender<()>> {
+    runtime.running = false;
+    runtime.bound_port = None;
+    runtime.shutdown_tx.take()
+}
+
+fn record_web_static_error(state: &Arc<Mutex<AppState>>, message: &str) {
+    if let Ok(mut s) = state.lock() {
+        s.web_static_runtime.last_error = Some(message.to_string());
+    }
+    log::warn!("{}", message);
+}
+
+/// 判断 5173 端口收到的请求是否属于「本地 API 反向代理」路径。
+/// 匹配成功时直接转发到 127.0.0.1:47831，由真实 API 服务处理；
+/// 否则交给静态资源托管逻辑（含 SPA index.html 回退）。
+fn is_api_proxy_path(path: &str) -> bool {
+    path == "/health"
+        || path == "/metrics"
+        || path.starts_with("/v1/")
+        || path.starts_with("/generate-report")
+        || path.starts_with("/wecom/")
+        || path.starts_with("/dingtalk/")
+        || path.starts_with("/files/")
+}
+
+/// 把 ParsedRequest 重新序列化为可直接写入 TCP 的 HTTP/1.1 报文字节，
+/// 用于把 5173 收到的 API 请求转发到 47831（重写 Host 头，追加转发头）。
+fn build_proxy_request_bytes(req: &ParsedRequest) -> Vec<u8> {
+    let mut out = Vec::with_capacity(1024 + req.body.len());
+    // 请求行：使用保存的 raw_target（保留完整查询串与原始编码）
+    out.extend_from_slice(
+        format!("{} {} HTTP/1.1\r\n", req.method, req.raw_target).as_bytes(),
+    );
+    // 必写 Host：指向真实 API（本地回环）
+    out.extend_from_slice(
+        format!("Host: {}:{}\r\n", LOCALHOST_API_HOST, DEFAULT_LOCALHOST_API_PORT).as_bytes(),
+    );
+    // 转发溯源：方便后端识别来自同源代理的请求
+    out.extend_from_slice(b"X-Forwarded-Proto: http\r\n");
+    out.extend_from_slice(b"X-Forwarded-Host: localhost:5173\r\n");
+    out.extend_from_slice(b"X-Forwarded-For: 127.0.0.1\r\n");
+
+    const HOP_BY_HOP: &[&str] = &[
+        "host",
+        "connection",
+        "keep-alive",
+        "proxy-authorization",
+        "proxy-authenticate",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    ];
+
+    for (k, v) in &req.headers {
+        let kl = k.to_ascii_lowercase();
+        if HOP_BY_HOP.iter().any(|h| *h == kl) {
+            continue;
+        }
+        out.extend_from_slice(format!("{k}: {v}\r\n").as_bytes());
+    }
+
+    // 有 body 时重写 Content-Length；没 body 不强制，避免 GET 多一个无意义头
+    if !req.body.is_empty() {
+        out.extend_from_slice(format!("Content-Length: {}\r\n", req.body.len()).as_bytes());
+    }
+    // 强制 Connection: close，简化读取逻辑（读到 EOF 即算读完）
+    out.extend_from_slice(b"Connection: close\r\n");
+    out.extend_from_slice(b"\r\n");
+    if !req.body.is_empty() {
+        out.extend_from_slice(&req.body);
+    }
+    out
+}
+
+/// 向 127.0.0.1:47831 转发一个 API 请求并读取完整响应字节。
+/// 因为向对端发送了 `Connection: close`，读取到 EOF 即视为响应结束。
+async fn proxy_to_local_api(req: &ParsedRequest) -> std::io::Result<Vec<u8>> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let target = format!("{}:{}", LOCALHOST_API_HOST, DEFAULT_LOCALHOST_API_PORT);
+    let mut upstream = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::net::TcpStream::connect(&target),
+    )
+    .await
+    .map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "连接本地 API 服务超时（47831）",
+        )
+    })??;
+
+    let payload = build_proxy_request_bytes(req);
+    upstream.write_all(&payload).await?;
+    upstream.flush().await?;
+
+    let mut buf = Vec::with_capacity(8192);
+    let mut tmp = [0u8; 16384];
+    loop {
+        let n = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            upstream.read(&mut tmp),
+        )
+        .await
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "读取本地 API 响应超时",
+            )
+        })??;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&tmp[..n]);
+    }
+    Ok(buf)
+}
+
+/// 启动/同步 5173 端口的前端静态资源服务器。由 sync_localhost_api_runtime 调用。
+pub fn sync_web_static_server(app: &AppHandle, state: &Arc<Mutex<AppState>>) -> Result<()> {
+    let (need_start, shutdown_tx, dist_dir) = {
+        let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        // 先确保本地 API 已启用（若用户禁用则也不启动前端服务，保持一致）
+        let enabled = state.config.localhost_api_enabled;
+        if !enabled {
+            state.web_static_runtime.last_error = None;
+            let tx = stop_web_static_locked(&mut state.web_static_runtime);
+            if let Some(tx) = tx {
+                let _ = tx.send(());
+            }
+            return Ok(());
+        }
+
+        let dist = resolve_web_dist_dir(app);
+        if dist.is_none() {
+            // 没找到 dist，不报错但记录：可能用户首次启动且未运行过 npm run build
+            state.web_static_runtime.resolved_dist_dir = None;
+            state.web_static_runtime.last_error = Some(
+                "未找到前端 dist 目录，请先执行 `npm run build` 构建前端。".to_string(),
+            );
+            log::warn!(
+                "Web 端（:5173）跳过启动：未找到 dist/index.html。请先 `npm run build` 构建前端。"
+            );
+            return Ok(());
+        }
+        let dist = dist.unwrap();
+
+        if state.web_static_runtime.running
+            && state.web_static_runtime.bound_port == Some(WEB_STATIC_PORT)
+            && state.web_static_runtime.resolved_dist_dir.as_ref() == Some(&dist)
+        {
+            return Ok(());
+        }
+
+        let shutdown_tx = stop_web_static_locked(&mut state.web_static_runtime);
+        state.web_static_runtime.resolved_dist_dir = Some(dist.clone());
+        (true, shutdown_tx, dist)
+    };
+
+    if let Some(tx) = shutdown_tx {
+        let _ = tx.send(());
+    }
+    if !need_start {
+        return Ok(());
+    }
+
+    let std_listener = match bind_localhost_api_listener(WEB_STATIC_HOST, WEB_STATIC_PORT) {
+        Ok(l) => l,
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            // 5173 很可能已经被用户手动起的 vite dev server 占用了，这属于正常场景，不报错
+            let msg = format!(
+                "端口 5173 已被占用（可能正在运行 Vite dev server），跳过 Web 静态服务器启动。前端页面由该服务提供。"
+            );
+            record_web_static_error(state, &msg);
+            log::info!("{msg}");
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(AppError::Config(format!(
+                "绑定 Web 静态服务器端口 {WEB_STATIC_PORT} 失败: {e}"
+            )));
+        }
+    };
+    std_listener.set_nonblocking(true)?;
+    let listener = TcpListener::from_std(std_listener)
+        .map_err(|e| AppError::Unknown(format!("接管 Web 静态服务器监听器失败: {e}")))?;
+
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    {
+        let mut s = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        s.web_static_runtime.running = true;
+        s.web_static_runtime.bound_port = Some(WEB_STATIC_PORT);
+        s.web_static_runtime.last_error = None;
+        s.web_static_runtime.shutdown_tx = Some(shutdown_tx);
+    }
+
+    let state_handle = state.clone();
+    let dist_dir_cloned = dist_dir.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = run_web_static_server(listener, shutdown_rx, dist_dir_cloned).await {
+            record_web_static_error(&state_handle, &format!("Web 静态服务器异常退出: {e}"));
+        } else if let Ok(mut s) = state_handle.lock() {
+            s.web_static_runtime.running = false;
+            s.web_static_runtime.bound_port = None;
+            s.web_static_runtime.shutdown_tx = None;
+        }
+    });
+
+    log::info!(
+        "Web 端静态资源服务器已监听在 http://{}:{}，dist={}",
+        WEB_STATIC_HOST,
+        WEB_STATIC_PORT,
+        dist_dir.display()
+    );
+    Ok(())
+}
+
+async fn run_web_static_server(
+    listener: TcpListener,
+    mut shutdown_rx: oneshot::Receiver<()>,
+    dist_dir: PathBuf,
+) -> Result<()> {
+    loop {
+        tokio::select! {
+            _ = &mut shutdown_rx => {
+                return Ok(());
+            }
+            accept_result = listener.accept() => {
+                let (stream, _) = accept_result
+                    .map_err(|e| AppError::Unknown(format!("接受 Web 静态连接失败: {e}")))?;
+                let dist = dist_dir.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = handle_web_static_connection(stream, dist).await {
+                        log::debug!("处理 Web 静态请求失败: {e}");
+                    }
+                });
+            }
+        }
+    }
+}
+
+async fn handle_web_static_connection(mut stream: TcpStream, dist_dir: PathBuf) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
+
+    match read_request(&mut stream).await {
+        Ok(Some(request)) => {
+            // OPTIONS 预检：与 47831 的 to_bytes 里 CORS 保持一致
+            if request.method == "OPTIONS" {
+                let cors_ok = b"HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, Authorization, X-Localhost-Api-Token\r\nAccess-Control-Max-Age: 86400\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                stream.write_all(cors_ok).await?;
+                stream.shutdown().await?;
+                return Ok(());
+            }
+
+            if is_api_proxy_path(&request.path) {
+                // 【反向代理分支】API 请求转发到 127.0.0.1:47831，原始响应字节直接写回
+                // 这样同源（localhost:5173）页面发起的 /v1/xxx、/health 请求能正常拿到业务数据。
+                match proxy_to_local_api(&request).await {
+                    Ok(raw) => {
+                        stream.write_all(&raw).await?;
+                    }
+                    Err(e) => {
+                        let err = HttpResponse::error(
+                            502,
+                            format!("反向代理本地 API 失败: {e}"),
+                        );
+                        stream.write_all(&err.to_bytes()).await?;
+                    }
+                }
+            } else {
+                // 【静态分支】前端静态资源或 SPA 回退
+                let resp = serve_static_from_dist(&dist_dir, &request.path);
+                stream.write_all(&resp.to_bytes()).await?;
+            }
+        }
+        Ok(None) => return Ok(()),
+        Err(err) => {
+            let resp = HttpResponse::error(400, err.to_string());
+            stream.write_all(&resp.to_bytes()).await?;
+        }
+    }
+
+    stream.shutdown().await?;
+    Ok(())
 }
 
 #[cfg(test)]

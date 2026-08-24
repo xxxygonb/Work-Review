@@ -432,6 +432,7 @@ pub struct AppState {
     pub avatar_generating_report: bool,
     pub generating_report: bool,
     pub localhost_api_runtime: localhost_api::LocalhostApiRuntime,
+    pub web_static_runtime: localhost_api::WebStaticRuntime,
     pub telegram_bot_runtime: telegram_bot::TelegramBotRuntime,
     /// avatar 循环缓存的活动窗口（时间戳 + 窗口信息），供 screenshot 循环复用
     pub cached_active_window: Option<(std::time::Instant, monitor::ActiveWindow)>,
@@ -4058,6 +4059,21 @@ async fn main() {
     // 清理历史遗留的钥匙串占位符（该机制已移除）
     clear_legacy_keychain_placeholders(&mut config);
 
+    // 迁移：强制启用本地 API（localhost Web 端）
+    // 说明：此前 localhost_api_enabled 默认值为 false，且用户已保存的旧配置中该字段为 false，
+    // 导致无论任何启动模式（含自启动、手动启动）本地 API 均不启动，浏览器访问 localhost:47831
+    // 直接出现 ERR_CONNECTION_REFUSED。Web 端依赖该服务，不应作为可选项；此处以迁移形式
+    // 无条件覆盖旧值，并在允许自动保存时写回磁盘。
+    if !config.localhost_api_enabled {
+        log::warn!("迁移：旧配置禁用了本地 API（localhost_api_enabled=false），为保障 Web 端可用性，已强制启用以修复连接被拒绝问题");
+        config.localhost_api_enabled = true;
+        if config_load_status.allows_automatic_save() {
+            if let Err(e) = config.save(&config_path) {
+                log::warn!("迁移：保存强制启用本地 API 的配置失败: {e}");
+            }
+        }
+    }
+
     // 迁移旧版 excluded_apps → app_rules
     if config.privacy.migrate_legacy_excluded_apps() {
         log::info!("已迁移旧版 excluded_apps 到 app_rules");
@@ -4215,6 +4231,7 @@ async fn main() {
         avatar_generating_report: false,
         generating_report: false,
         localhost_api_runtime: localhost_api::LocalhostApiRuntime::default(),
+        web_static_runtime: localhost_api::WebStaticRuntime::default(),
         telegram_bot_runtime: telegram_bot::TelegramBotRuntime::default(),
         cached_active_window: None,
     }));
@@ -4309,12 +4326,27 @@ async fn main() {
                 result
             };
 
-            if should_hide_main_window {
+            // 开机自启动且非静默模式：强制保证窗口可见
+            // 原因：tauri.conf.json 中 visible=false 可能导致 setup 阶段 show() 因时序失效
+            let autostart_force_show =
+                launch_args_contain_autostart(&launch_args)
+                    && !args_include_explicit_hidden_flag(&launch_args);
+            let should_hide_final = if autostart_force_show {
+                log::info!("开机自启动（非静默）：强制显示 GUI 窗口，覆盖 should_hide={}", should_hide_main_window);
+                false
+            } else {
+                should_hide_main_window
+            };
+
+            if should_hide_final {
                 let _ = window.hide();
                 let _ = app.emit("main-window-visibility", false);
             } else {
                 let _ = window.show();
+                // 强制显示保障：某些情况下 setup 阶段单次 show() 不生效，重试并聚焦
+                let _ = window.set_focus();
                 let _ = app.emit("main-window-visibility", true);
+                log::info!("主窗口已执行 show() + focus() 操作");
             }
 
             let state_clone = state.inner().clone();
@@ -4338,18 +4370,31 @@ async fn main() {
             }
 
             if launch_args_contain_autostart(&launch_args) {
-                let api_not_running = {
-                    let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
-                    !state_guard.localhost_api_runtime.running
-                };
-                if api_not_running {
-                    log::info!("开机自启动：强制启动本地 API（Web 端）");
-                    {
-                        let mut state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
-                        state_guard.config.localhost_api_enabled = true;
-                    }
-                    if let Err(e) = localhost_api::sync_localhost_api_runtime(app.handle(), state.inner()) {
-                        log::warn!("开机自启动：强制启动本地 API 失败: {e}");
+                // 开机自启动：无条件强制启用本地 API（Web 端），移除 running 预判避免边界遗漏
+                log::info!("开机自启动：无条件强制启动本地 API（Web 端）");
+                {
+                    let mut state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
+                    state_guard.config.localhost_api_enabled = true;
+                }
+                if let Err(e) = localhost_api::sync_localhost_api_runtime(app.handle(), state.inner()) {
+                    log::warn!("开机自启动：强制启动本地 API 失败: {e}");
+                } else {
+                    // 二次同步确认：防止状态竞态导致首次启动未生效
+                    let state_after = state.inner().lock().unwrap_or_else(|e| e.into_inner());
+                    log::info!(
+                        "开机自启动：本地 API 启动状态确认 running={} host={:?} port={:?}",
+                        state_after.localhost_api_runtime.running,
+                        state_after.localhost_api_runtime.bound_host,
+                        state_after.localhost_api_runtime.bound_port,
+                    );
+                    // 如果仍未运行，再强行重启一次
+                    let need_retry = !state_after.localhost_api_runtime.running;
+                    drop(state_after);
+                    if need_retry {
+                        log::warn!("开机自启动：本地 API 首次启动未生效，执行二次强制启动");
+                        if let Err(e) = localhost_api::sync_localhost_api_runtime(app.handle(), state.inner()) {
+                            log::warn!("开机自启动：二次强制启动本地 API 仍失败: {e}");
+                        }
                     }
                 }
             }

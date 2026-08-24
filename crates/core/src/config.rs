@@ -1274,7 +1274,7 @@ impl Default for AppConfig {
             daily_report_hidden_blocks: Vec::new(),
             daily_report_last_ai_order: Vec::new(),
             daily_report_auto_generate_time: None,
-            localhost_api_enabled: false,
+            localhost_api_enabled: true,
             localhost_api_host: None,
             localhost_api_port: DEFAULT_LOCALHOST_API_PORT,
             telegram_bot_enabled: false,

@@ -1,14 +1,28 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import { invoke } from '$lib/utils/safeInvoke.ts';
+  import { createEventDispatcher, afterUpdate, tick } from 'svelte';
+  import { invoke, extractInvokeError } from '$lib/utils/safeInvoke.ts';
   import { t } from '$lib/i18n/index.ts';
 
   const dispatch = createEventDispatcher<{ success: void }>();
 
   let password = '';
   let error = '';
+  let errorDetail = '';
   let loading = false;
   let passwordInput: HTMLInputElement;
+  let inputHasValue = false;
+
+  function syncInputState() {
+    const v = passwordInput?.value ?? password;
+    inputHasValue = !!v && v.trim().length > 0;
+  }
+
+  // 浏览器 autofill 可能在组件挂载后异步填充 DOM，
+  // 此时既不触发 input 事件，也不触发 Svelte bind:value 同步。
+  // 因此每次更新后都按 DOM 实际值刷新按钮可用状态。
+  afterUpdate(() => {
+    syncInputState();
+  });
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Enter') {
@@ -16,27 +30,70 @@
     }
   }
 
+  function handleInputOrChange() {
+    // 无论事件名是什么，立即按 DOM 实际值同步一次
+    syncInputState();
+    // 顺便让响应式变量 password 追平，便于下游逻辑使用
+    if (passwordInput) password = passwordInput.value;
+  }
+
   async function handleSubmit(): Promise<void> {
-    if (!password.trim()) {
+    // 防范浏览器自动填充与 Svelte bind:value 不同步：
+    // 某些情况下 Chrome autofill 直接写入 DOM value 但不派发 input 事件，
+    // 导致响应式变量 password 仍为空/旧值，而用户肉眼看到的密码框值其实是正确的。
+    // 此时直接读取 passwordInput.value，以 DOM 上真实呈现给用户的字符为准。
+    const realPassword = passwordInput?.value ?? password;
+    if (!realPassword.trim()) {
       error = t('login.passwordRequired');
+      errorDetail = '';
+      if (passwordInput) passwordInput.focus();
       return;
+    }
+
+    if (import.meta.env.DEV && password !== realPassword) {
+      // 开发环境提示：检测到响应式绑定值与 DOM 实际值不一致，说明触发了 autofill 不同步 bug
+      console.warn('[LoginPage] 响应式值与 DOM 值不同步！', {
+        reactiveLen: password.length,
+        domLen: realPassword.length,
+        reactiveB64: btoa(unescape(encodeURIComponent(password))),
+        domB64: btoa(unescape(encodeURIComponent(realPassword))),
+      });
     }
 
     loading = true;
     error = '';
+    errorDetail = '';
 
     try {
-      const matched = await invoke<boolean>('verify_password', { password });
+      const matched = await invoke<boolean>('verify_password', { password: realPassword });
       if (matched) {
         dispatch('success');
       } else {
         error = t('login.passwordIncorrect');
-        password = '';
-        passwordInput?.focus();
+        errorDetail = '';
+        if (passwordInput) {
+          passwordInput.value = '';
+          password = '';
+          syncInputState();
+          passwordInput.focus();
+        }
       }
     } catch (e) {
-      error = t('login.verifyFailed');
-      console.error('验证密码失败:', e);
+      const parsed = extractInvokeError(e);
+      // 区分几类常见错误，给用户更清晰的指引
+      if (parsed.msg.includes('无法连接本地 API') || parsed.msg.includes('localhost API')) {
+        error = '无法连接本地 API：请确认应用已启动并正在运行';
+      } else if (parsed.msg.includes('回退失败 (4') || parsed.msg.includes('回退失败 (5')) {
+        error = t('login.verifyFailed');
+      } else {
+        error = parsed.msg || t('login.verifyFailed');
+      }
+      errorDetail = parsed.detail ? parsed.detail : '';
+      // 如果没有 detail 但有 msg 内容且不是我们自定义的提示，也把 msg 作为技术细节
+      if (!errorDetail && parsed.msg && error !== parsed.msg) {
+        errorDetail = parsed.msg.slice(0, 240);
+      }
+      console.error('验证密码失败:', e, { parsed });
     } finally {
       loading = false;
     }
@@ -63,20 +120,29 @@
           bind:this={passwordInput}
           placeholder={t('login.passwordPlaceholder')}
           class="login-input"
-          disabled={loading}
-          autocomplete="current-password"
+          on:keydown={handleKeydown}
+          on:input={handleInputOrChange}
+          on:change={handleInputOrChange}
+          on:paste={handleInputOrChange}
+          autocomplete="off"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
         />
       </div>
 
       {#if error}
         <p class="login-error">{error}</p>
       {/if}
+      {#if errorDetail}
+        <p class="login-error-detail">{errorDetail}</p>
+      {/if}
 
       <button
         type="button"
         on:click={handleSubmit}
         class="login-button"
-        disabled={loading || !password.trim()}
+        disabled={loading || !inputHasValue}
       >
         {#if loading}
           <svg class="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
@@ -201,6 +267,22 @@
     font-size: 0.8125rem;
     color: #ef4444;
     margin: 0;
+  }
+
+  .login-error-detail {
+    font-size: 0.75rem;
+    color: #991b1b;
+    margin: 0.25rem 0 0 0;
+    line-height: 1.35;
+    word-break: break-word;
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    opacity: 0.85;
+  }
+
+  :global(.dark) .login-error-detail {
+    color: #fecaca;
+    opacity: 0.8;
   }
 
   .login-button {
