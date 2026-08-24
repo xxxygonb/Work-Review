@@ -2,6 +2,105 @@
 
 ## 2026-08-24
 
+### 17. 修复 Web 端 404：Vite 开发服务器未配置 API 反向代理
+
+**问题**：一键启动脚本（`start-all.bat`）启动后，浏览器访问 `http://localhost:5173` 输入密码提示「验证失败，请重试」，错误详情为 `[safeInvoke] verify_password 回退失败 (404)`。
+
+**根因定位**：
+`start-all.bat` 用 `npx vite --host` 启动的是 **Vite 开发服务器**（端口 5173），它只负责前端热更新和静态资源托管，**不知道后端 API 在 47831 端口**，也没有配置反向代理。
+
+请求链路：
+```
+浏览器 → localhost:5173/v1/verify-password → Vite 开发服务器 → 404（Vite 不认识 /v1/ 路径）
+```
+
+而 Tauri 内置的 Web 静态服务器（也在 5173 端口）有 `is_api_proxy_path()` 判断，会把 `/v1/` 请求反向代理到 47831。但 `npx vite` 启动的是 Vite 自己的服务器，不是 Tauri 内置的那个，所以代理逻辑不生效。
+
+**修复方案**：
+在 [vite.config.ts](file:///g:/Work-Review/vite.config.ts) 的 `server` 配置中添加 `proxy`，让 Vite 开发服务器把 API 请求代理到 47831：
+
+```typescript
+proxy: {
+  '/v1': {
+    target: 'http://127.0.0.1:47831',
+    changeOrigin: true,
+  },
+  '/health': {
+    target: 'http://127.0.0.1:47831',
+    changeOrigin: true,
+  },
+  '/metrics': {
+    target: 'http://127.0.0.1:47831',
+    changeOrigin: true,
+  },
+},
+```
+
+修复后请求链路：
+```
+浏览器 → localhost:5173/v1/verify-password → Vite proxy → 127.0.0.1:47831/v1/verify-password → 200 OK
+```
+
+与 `safeInvoke.ts` 中 `originMatchesLocalServer()` 返回空串 baseUrl（走相对路径 `/v1/xxx`）完全一致，无需修改前端调用逻辑。
+
+#### 修改文件
+- `vite.config.ts`
+  - `server.proxy`：新增 `/v1`、`/health`、`/metrics` 三个代理规则，目标 `http://127.0.0.1:47831`
+
+### 16. 修复 Web 端密码验证后报错 `Failed to execute 'text' on 'Response': body stream already read`
+
+**问题**：一键启动脚本启动 Web 端后，输入密码点击提交，页面显示 `Failed to execute 'text' on 'Response': body stream already read`，无法正常登录。
+
+**根因定位**：
+在 [safeInvoke.ts](file:///g:/Work-Review/src/lib/utils/safeInvoke.ts) 的 `httpFallback()` 中，错误处理路径对 Response body 进行了两次读取：
+```typescript
+// 旧代码
+if (!response.ok) {
+  try {
+    const errBody = await response.json();  // ← 第1次读取 body（json() 内部消费流）
+    errorDetail = errBody.error || JSON.stringify(errBody);
+  } catch {
+    errorDetail = await response.text();     // ← 第2次读取：json() 失败后尝试 text()，但流已被锁定！
+  }
+}
+const data = await response.json();         // ← response.ok 时正常读取
+```
+Fetch API 的 Response body 是一次性流（stream），调用 `response.json()` 后无论成功与否，body 流都被锁定（locked），后续任何 `.text()` / `.json()` / `.arrayBuffer()` 调用都会抛出 `TypeError: body stream already read`。
+
+当后端返回非 2xx 响应且 body 不是有效 JSON 时，`response.json()` 抛异常进入 catch 分支，此时再调 `response.text()` 就触发此错误。即使后端正常返回 JSON，某些边缘情况（如网络层提前消费 body）也可能触发。
+
+**修复方案**：
+统一用 `response.text()` 一次性读取原始文本，再手动 `JSON.parse` 解析——body 只被读取一次，无论成功与否都不会出现流锁定问题：
+```typescript
+// 新代码
+const responseText = await response.text();   // ← 只读取一次
+
+if (!response.ok) {
+  try {
+    const errBody = JSON.parse(responseText);  // ← 从字符串解析，不消费流
+    errorDetail = errBody.error || JSON.stringify(errBody);
+  } catch {
+    errorDetail = responseText;                // ← 直接用原始文本，无需再读流
+  }
+  throw new Error(...);
+}
+
+let data: unknown;
+try {
+  data = JSON.parse(responseText);             // ← 同理，从字符串解析
+} catch {
+  throw new Error(`响应非有效 JSON: ${responseText.slice(0, 200)}`);
+}
+```
+
+额外收益：成功路径也增加了 JSON 解析失败的明确错误提示，而非让 `response.json()` 的模糊异常传播到 UI 层。
+
+#### 修改文件
+- `src/lib/utils/safeInvoke.ts`
+  - `httpFallback`：先 `response.text()` 一次性读取 body 文本，再用 `JSON.parse` 解析
+  - 错误路径：`JSON.parse(responseText)` + catch 兜底用 `responseText` 原始文本
+  - 成功路径：`JSON.parse(responseText)` + catch 抛出「响应非有效 JSON」明确错误
+
 ### 15. 修复 Web 端「验证失败，请重试」：safeInvoke `!""` falsy 判断把同源空串 baseUrl 当作未连接
 
 **问题**：上一轮修复了 `originMatchesLocalServer()` 让 Web 端在访问 `localhost:5173` 时使用相对路径（baseUrl=""），避免 CORS/端口探测。但用户反馈 Web 端依旧提示「验证失败，请重试」，而服务器端双端口完全正常（命令行 `POST 5173/v1/verify-password` 能返回 `matched=True`）。Tauri 桌面端登录依旧可用。

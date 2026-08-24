@@ -22,6 +22,20 @@ export default defineConfig({
     hmr: {
       host: '127.0.0.1',
     },
+    proxy: {
+      '/v1': {
+        target: 'http://127.0.0.1:47831',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://127.0.0.1:47831',
+        changeOrigin: true,
+      },
+      '/metrics': {
+        target: 'http://127.0.0.1:47831',
+        changeOrigin: true,
+      },
+    },
   },
   envPrefix: ['VITE_', 'TAURI_'],
   optimizeDeps: {

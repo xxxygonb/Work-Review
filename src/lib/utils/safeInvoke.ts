@@ -269,18 +269,26 @@ async function httpFallback<T>(command: string, args: Record<string, unknown>): 
   }
 
   const response = await fetch(url, init);
+
+  const responseText = await response.text();
+
   if (!response.ok) {
     let errorDetail = '';
     try {
-      const errBody = await response.json();
+      const errBody = JSON.parse(responseText);
       errorDetail = errBody.error || JSON.stringify(errBody);
     } catch {
-      errorDetail = await response.text();
+      errorDetail = responseText;
     }
     throw new Error(`[safeInvoke] ${command} 回退失败 (${response.status}): ${errorDetail}`);
   }
 
-  const data = await response.json();
+  let data: unknown;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    throw new Error(`[safeInvoke] ${command} 响应非有效 JSON: ${responseText.slice(0, 200)}`);
+  }
 
   const CONTENT_WRAPPED_COMMANDS = new Set([
     'get_screenshot_thumbnail',
