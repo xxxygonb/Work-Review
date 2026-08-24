@@ -3184,8 +3184,49 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                                 }
                             }
                             Err(e) => {
-                                log::error!("截屏失败: {e}");
-                                None
+                                log::error!("截屏失败: {e}，降级为无截图记录");
+                                let is_confirmed_idle = should_confirm_idle(
+                                    input_idle,
+                                    input_idle_seconds,
+                                    screenshots_enabled,
+                                    false,
+                                );
+                                let effective_duration = if is_confirmed_idle {
+                                    0
+                                } else {
+                                    adjusted_duration
+                                };
+                                let activity = work_review_core::database::Activity {
+                                    id: None,
+                                    timestamp: current_timestamp,
+                                    app_name: active_window.app_name.clone(),
+                                    window_title: active_window.window_title,
+                                    screenshot_path: String::new(),
+                                    ocr_text: None,
+                                    category,
+                                    duration: effective_duration,
+                                    browser_url: active_window.browser_url,
+                                    executable_path: active_window.executable_path,
+                                    semantic_category: Some(classification.semantic_category.clone()),
+                                    semantic_confidence: Some(i32::from(classification.confidence)),
+                                    screenshot_url: None,
+                                };
+                                match {
+                                    let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                                    state_guard.database.insert_activity(&activity)
+                                } {
+                                    Ok(activity_id) => {
+                                        log::info!("📝 截屏失败降级: 新建无截图活动 {} (id={})", active_window.app_name, activity_id);
+                                        Some(work_review_core::database::Activity {
+                                            id: Some(activity_id),
+                                            ..activity
+                                        })
+                                    }
+                                    Err(e2) => {
+                                        log::error!("保存降级活动记录失败: {e2}");
+                                        None
+                                    }
+                                }
                             }
                         }
                     } else {

@@ -26,14 +26,23 @@ export default defineConfig({
       '/v1': {
         target: 'http://127.0.0.1:47831',
         changeOrigin: true,
+        headers: {
+          'X-Forwarded-Host': 'localhost:5173',
+        },
       },
       '/health': {
         target: 'http://127.0.0.1:47831',
         changeOrigin: true,
+        headers: {
+          'X-Forwarded-Host': 'localhost:5173',
+        },
       },
       '/metrics': {
         target: 'http://127.0.0.1:47831',
         changeOrigin: true,
+        headers: {
+          'X-Forwarded-Host': 'localhost:5173',
+        },
       },
     },
   },

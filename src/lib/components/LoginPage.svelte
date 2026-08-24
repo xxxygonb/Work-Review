@@ -12,36 +12,38 @@
   let passwordInput: HTMLInputElement;
   let inputHasValue = false;
 
+  let showResetForm = false;
+  let resetDefaultPassword = '';
+  let resetNewPassword = '';
+  let resetConfirmPassword = '';
+  let resetError = '';
+  let resetLoading = false;
+
   function syncInputState() {
     const v = passwordInput?.value ?? password;
     inputHasValue = !!v && v.trim().length > 0;
   }
 
-  // 浏览器 autofill 可能在组件挂载后异步填充 DOM，
-  // 此时既不触发 input 事件，也不触发 Svelte bind:value 同步。
-  // 因此每次更新后都按 DOM 实际值刷新按钮可用状态。
   afterUpdate(() => {
     syncInputState();
   });
 
   function handleKeydown(e: KeyboardEvent): void {
     if (e.key === 'Enter') {
-      handleSubmit();
+      if (showResetForm) {
+        handleResetPassword();
+      } else {
+        handleSubmit();
+      }
     }
   }
 
   function handleInputOrChange() {
-    // 无论事件名是什么，立即按 DOM 实际值同步一次
     syncInputState();
-    // 顺便让响应式变量 password 追平，便于下游逻辑使用
     if (passwordInput) password = passwordInput.value;
   }
 
   async function handleSubmit(): Promise<void> {
-    // 防范浏览器自动填充与 Svelte bind:value 不同步：
-    // 某些情况下 Chrome autofill 直接写入 DOM value 但不派发 input 事件，
-    // 导致响应式变量 password 仍为空/旧值，而用户肉眼看到的密码框值其实是正确的。
-    // 此时直接读取 passwordInput.value，以 DOM 上真实呈现给用户的字符为准。
     const realPassword = passwordInput?.value ?? password;
     if (!realPassword.trim()) {
       error = t('login.passwordRequired');
@@ -51,7 +53,6 @@
     }
 
     if (import.meta.env.DEV && password !== realPassword) {
-      // 开发环境提示：检测到响应式绑定值与 DOM 实际值不一致，说明触发了 autofill 不同步 bug
       console.warn('[LoginPage] 响应式值与 DOM 值不同步！', {
         reactiveLen: password.length,
         domLen: realPassword.length,
@@ -80,7 +81,6 @@
       }
     } catch (e) {
       const parsed = extractInvokeError(e);
-      // 区分几类常见错误，给用户更清晰的指引
       if (parsed.msg.includes('无法连接本地 API') || parsed.msg.includes('localhost API')) {
         error = '无法连接本地 API：请确认应用已启动并正在运行';
       } else if (parsed.msg.includes('回退失败 (4') || parsed.msg.includes('回退失败 (5')) {
@@ -89,13 +89,60 @@
         error = parsed.msg || t('login.verifyFailed');
       }
       errorDetail = parsed.detail ? parsed.detail : '';
-      // 如果没有 detail 但有 msg 内容且不是我们自定义的提示，也把 msg 作为技术细节
       if (!errorDetail && parsed.msg && error !== parsed.msg) {
         errorDetail = parsed.msg.slice(0, 240);
       }
       console.error('验证密码失败:', e, { parsed });
     } finally {
       loading = false;
+    }
+  }
+
+  function toggleResetForm() {
+    showResetForm = !showResetForm;
+    if (showResetForm) {
+      resetDefaultPassword = '';
+      resetNewPassword = '';
+      resetConfirmPassword = '';
+      resetError = '';
+    }
+  }
+
+  async function handleResetPassword(): Promise<void> {
+    resetError = '';
+    if (!resetDefaultPassword.trim()) {
+      resetError = t('login.defaultPasswordIncorrect');
+      return;
+    }
+    if (!resetNewPassword.trim()) {
+      resetError = t('settingsGeneral.passwordEmpty');
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      resetError = t('settingsGeneral.passwordMismatch');
+      return;
+    }
+
+    resetLoading = true;
+    try {
+      await invoke<void>('change_password', { old_password: resetDefaultPassword, new_password: resetNewPassword });
+      showResetForm = false;
+      error = '';
+      errorDetail = '';
+      password = '';
+      if (passwordInput) {
+        passwordInput.value = '';
+        syncInputState();
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('原密码不正确')) {
+        resetError = t('login.defaultPasswordIncorrect');
+      } else {
+        resetError = msg || t('settingsGeneral.passwordChangeFailed');
+      }
+    } finally {
+      resetLoading = false;
     }
   }
 </script>
@@ -156,7 +203,72 @@
       </button>
     </div>
 
-    <p class="login-hint">{t('login.defaultHint')}</p>
+    <div class="login-footer">
+      <button type="button" on:click={toggleResetForm} class="forgot-link">
+        {t('login.forgotPassword')}
+      </button>
+    </div>
+
+    {#if showResetForm}
+      <div class="reset-section">
+        <h3 class="reset-title">{t('login.resetPasswordTitle')}</h3>
+        <p class="reset-hint">{t('login.resetPasswordHint')}</p>
+
+        <div class="reset-form">
+          <input
+            type="password"
+            bind:value={resetDefaultPassword}
+            placeholder={t('login.defaultPasswordPlaceholder')}
+            class="login-input"
+            autocomplete="off"
+          />
+          <input
+            type="password"
+            bind:value={resetNewPassword}
+            placeholder={t('login.newPasswordPlaceholder')}
+            class="login-input"
+            autocomplete="off"
+          />
+          <input
+            type="password"
+            bind:value={resetConfirmPassword}
+            placeholder={t('login.confirmPasswordPlaceholder')}
+            class="login-input"
+            autocomplete="off"
+          />
+
+          {#if resetError}
+            <p class="login-error">{resetError}</p>
+          {/if}
+
+          <div class="reset-actions">
+            <button
+              type="button"
+              on:click={toggleResetForm}
+              class="reset-cancel-btn"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              on:click={handleResetPassword}
+              disabled={resetLoading}
+              class="reset-confirm-btn"
+            >
+              {#if resetLoading}
+                <svg class="animate-spin h-4 w-4 mr-1" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" />
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                {t('login.verifying')}
+              {:else}
+                {t('common.confirm')}
+              {/if}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -310,14 +422,124 @@
     cursor: not-allowed;
   }
 
-  .login-hint {
+  .login-footer {
     text-align: center;
-    font-size: 0.75rem;
-    color: #94a3b8;
-    margin: 1.5rem 0 0 0;
+    margin-top: 1.25rem;
   }
 
-  :global(.dark) .login-hint {
+  .forgot-link {
+    background: none;
+    border: none;
+    color: #6366f1;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.2s;
+  }
+
+  .forgot-link:hover {
+    color: #4f46e5;
+    text-decoration: underline;
+  }
+
+  :global(.dark) .forgot-link {
+    color: #818cf8;
+  }
+
+  :global(.dark) .forgot-link:hover {
+    color: #a5b4fc;
+  }
+
+  .reset-section {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  :global(.dark) .reset-section {
+    border-top-color: #30363d;
+  }
+
+  .reset-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0 0 0.25rem 0;
+  }
+
+  :global(.dark) .reset-title {
+    color: #e2e8f0;
+  }
+
+  .reset-hint {
+    font-size: 0.75rem;
     color: #64748b;
+    margin: 0 0 1rem 0;
+  }
+
+  :global(.dark) .reset-hint {
+    color: #94a3b8;
+  }
+
+  .reset-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .reset-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+  }
+
+  .reset-cancel-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    border-radius: 0.375rem;
+    border: 1px solid #e2e8f0;
+    background: transparent;
+    color: #64748b;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+  }
+
+  .reset-cancel-btn:hover {
+    background: #f1f5f9;
+    color: #475569;
+  }
+
+  :global(.dark) .reset-cancel-btn {
+    border-color: #30363d;
+    color: #94a3b8;
+  }
+
+  :global(.dark) .reset-cancel-btn:hover {
+    background: #21262d;
+    color: #e6edf3;
+  }
+
+  .reset-confirm-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    font-size: 0.8125rem;
+    border-radius: 0.375rem;
+    border: none;
+    background: #6366f1;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s, opacity 0.2s;
+  }
+
+  .reset-confirm-btn:hover:not(:disabled) {
+    background: #4f46e5;
+  }
+
+  .reset-confirm-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 </style>

@@ -51,6 +51,10 @@
 
   async function handleChangePassword(): Promise<void> {
     passwordError = '';
+    if (!oldPassword.trim()) {
+      passwordError = t('settingsGeneral.oldPassword') + '不能为空';
+      return;
+    }
     if (!newPassword.trim()) {
       passwordError = t('settingsGeneral.passwordEmpty');
       return;
@@ -595,77 +599,61 @@
           </div>
           <button
             type="button"
-            on:click={() => { showPasswordDialog = true; }}
+            on:click={() => { showPasswordDialog = !showPasswordDialog; if (!showPasswordDialog) { passwordError = ''; } }}
             class="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-[#30363d] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#21262d] transition-colors"
           >
-            {t('settingsGeneral.changePassword')}
+            {showPasswordDialog ? t('common.cancel') : t('settingsGeneral.changePassword')}
           </button>
         </div>
+
+        {#if showPasswordDialog}
+          <div class="ml-3 pl-3 border-l-2 border-primary-200/60 dark:border-primary-800/40 space-y-2.5">
+            <div>
+              <label class="settings-label">{t('settingsGeneral.oldPassword')}</label>
+              <input
+                type="password"
+                bind:value={oldPassword}
+                class="mt-1 w-full max-w-xs px-3 py-1.5 rounded-md border border-slate-300 dark:border-[#30363d] bg-slate-50 dark:bg-[#0d1117] text-slate-800 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+            <div>
+              <label class="settings-label">{t('settingsGeneral.newPassword')}</label>
+              <input
+                type="password"
+                bind:value={newPassword}
+                class="mt-1 w-full max-w-xs px-3 py-1.5 rounded-md border border-slate-300 dark:border-[#30363d] bg-slate-50 dark:bg-[#0d1117] text-slate-800 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+            <div>
+              <label class="settings-label">{t('settingsGeneral.confirmPassword')}</label>
+              <input
+                type="password"
+                bind:value={confirmPasswordValue}
+                class="mt-1 w-full max-w-xs px-3 py-1.5 rounded-md border border-slate-300 dark:border-[#30363d] bg-slate-50 dark:bg-[#0d1117] text-slate-800 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+
+            {#if passwordError}
+              <p class="text-sm text-red-500">{passwordError}</p>
+            {/if}
+
+            <div class="flex gap-2">
+              <button
+                type="button"
+                on:click={handleChangePassword}
+                disabled={passwordLoading}
+                class="px-3 py-1.5 text-xs rounded-md bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {#if passwordLoading}
+                  {t('login.verifying')}
+                {:else}
+                  {t('common.confirm')}
+                {/if}
+              </button>
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
   </div>
 </div>
-
-{#if showPasswordDialog}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="fixed inset-0 z-[200] flex items-center justify-center" on:click|self={() => { showPasswordDialog = false; passwordError = ''; }}>
-    <div class="absolute inset-0 bg-black/50" on:click={() => { showPasswordDialog = false; passwordError = ''; }}></div>
-    <div class="relative w-full max-w-md mx-4 p-6 rounded-xl bg-white dark:bg-[#1c2333] shadow-xl" on:click|stopPropagation>
-      <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-4">{t('settingsGeneral.changePassword')}</h3>
-
-      <div class="space-y-3">
-        <div>
-          <label class="block text-sm text-slate-600 dark:text-slate-400 mb-1">{t('settingsGeneral.oldPassword')}</label>
-          <input
-            type="password"
-            bind:value={oldPassword}
-            class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-[#30363d] bg-slate-50 dark:bg-[#0d1117] text-slate-800 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
-        </div>
-        <div>
-          <label class="block text-sm text-slate-600 dark:text-slate-400 mb-1">{t('settingsGeneral.newPassword')}</label>
-          <input
-            type="password"
-            bind:value={newPassword}
-            class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-[#30363d] bg-slate-50 dark:bg-[#0d1117] text-slate-800 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
-        </div>
-        <div>
-          <label class="block text-sm text-slate-600 dark:text-slate-400 mb-1">{t('settingsGeneral.confirmPassword')}</label>
-          <input
-            type="password"
-            bind:value={confirmPasswordValue}
-            class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-[#30363d] bg-slate-50 dark:bg-[#0d1117] text-slate-800 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
-        </div>
-      </div>
-
-      {#if passwordError}
-        <p class="mt-3 text-sm text-red-500">{passwordError}</p>
-      {/if}
-
-      <div class="mt-5 flex justify-end gap-2">
-        <button
-          type="button"
-          on:click={() => { showPasswordDialog = false; passwordError = ''; }}
-          class="px-4 py-2 text-sm rounded-md border border-slate-300 dark:border-[#30363d] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#21262d] transition-colors"
-        >
-          {t('common.cancel')}
-        </button>
-        <button
-          type="button"
-          on:click={handleChangePassword}
-          disabled={passwordLoading}
-          class="px-4 py-2 text-sm rounded-md bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {#if passwordLoading}
-            {t('login.verifying')}
-          {:else}
-            {t('common.confirm')}
-          {/if}
-        </button>
-      </div>
-    </div>
-  </div>
-{/if}

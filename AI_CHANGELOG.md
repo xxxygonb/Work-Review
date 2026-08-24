@@ -2,6 +2,133 @@
 
 ## 2026-08-24
 
+### 22. 修复截图失败时活动记录被丢弃的问题
+
+**问题**：新建活动路径中，截图捕获失败时整个活动记录都不保存（返回 `None`），导致即使有活动发生，也不会留下任何记录。
+
+**修复**：截图失败时降级为无截图记录——仍然保存活动记录（`screenshot_path` 为空），只是没有截图和 OCR。日志从 `"截屏失败: {e}"` 改为 `"截屏失败: {e}，降级为无截图记录"`，并输出 `"📝 截屏失败降级: 新建无截图活动 {app_name} (id={id})"`。
+
+#### 修改文件
+- `src-tauri/src/main.rs`（新建路径 `Err(e)` 分支）
+
+### 21. 修复记录没有截图：配置中 screenshots_enabled 被设为 false
+
+**问题**：时间线记录显示"本次记录未保存截图"。
+
+**根因定位**：
+1. 用户配置文件 `%APPDATA%\work-review\config.json` 中 `"screenshots_enabled": false`，截图功能被关闭。
+2. 后端在 `screenshots_enabled = false` 时走无截图路径，创建 `screenshot_path: String::new()` 的活动记录。
+3. 前端 `Timeline.svelte` 中当 `screenshot_path` 为空时显示"本次记录未保存截图"。
+
+**修复**：
+- 将用户配置文件中 `screenshots_enabled` 从 `false` 改回 `true`
+- 同时修复了 Vite proxy 缺少 `X-Forwarded-Host` 头的问题（见 #18），确保 Web 端截图 API 请求不被 401 拒绝
+- 同时修复了截图失败时活动记录被丢弃的问题（见 #22）
+
+#### 修改文件
+- `%APPDATA%\work-review\config.json`（`screenshots_enabled: false → true`）
+- `vite.config.ts`（proxy 添加 `X-Forwarded-Host` 头，#18）
+- `src-tauri/src/main.rs`（截图失败降级，#22）
+
+### 22. 修复截图失败时活动记录被丢弃的问题
+
+**问题**：新建活动路径中，截图捕获失败时整个活动记录都不保存（返回 None），导致即使有活动发生也不会留下任何记录。
+
+**修复**：截图失败时降级为无截图记录——仍然保存活动记录（screenshot_path 为空），只是没有截图和 OCR。
+
+#### 修改文件
+- src-tauri/src/main.rs（新建路径 Err(e) 分支）
+
+### 21. 修复记录没有截图：配置中 screenshots_enabled 被设为 false
+
+**问题**：时间线记录显示"本次记录未保存截图"。
+
+**根因**：用户配置文件中 screenshots_enabled: false，截图功能被关闭。
+
+**修复**：将 screenshots_enabled 从 false 改回 true。
+
+#### 修改文件
+- %APPDATA%\work-review\config.json
+### 20. 登录页：删除默认密码提示，增加"忘记密码"重置功能
+
+**需求**：删除登录页底部的"首次使用默认密码：Admin123"提示，改为"忘记密码"链接，点击后展开重置密码表单，输入默认密码（Admin123）即可重新设置新密码。
+
+**修改内容**：
+- 删除 `login.defaultHint` 翻译及对应 `<p class="login-hint">` 元素
+- 新增"忘记密码"链接按钮，点击展开/收起重置密码表单
+- 重置表单包含：默认密码输入框、新密码输入框、确认新密码输入框、取消/确认按钮
+- 调用 `change_password` 命令，以默认密码作为 `old_password` 验证
+- 成功后自动收起表单，清空密码输入框，用户用新密码登录
+- 错误处理：默认密码不正确、新密码为空、两次密码不一致
+
+**新增 i18n 翻译**（zh-CN）：
+- `login.forgotPassword`: '忘记密码'
+- `login.resetPasswordTitle`: '重置密码'
+- `login.resetPasswordHint`: '输入默认密码即可重新设置新密码'
+- `login.defaultPasswordPlaceholder`: '请输入默认密码'
+- `login.newPasswordPlaceholder`: '请输入新密码'
+- `login.confirmPasswordPlaceholder`: '请确认新密码'
+- `login.resetSuccess`: '密码重置成功，请使用新密码登录'
+- `login.defaultPasswordIncorrect`: '默认密码不正确'
+
+#### 修改文件
+- `src/lib/components/LoginPage.svelte`
+- `src/lib/i18n/locales/zh-CN.ts`
+
+### 19. 设置页：修改密码从弹窗改为内联二级选项
+
+**需求**：设置中的修改密码不要用弹窗，而是点击"修改密码"后展开内联二级选项，样式参考设置中"开机自启"的二级选项模式。
+
+**修改内容**：
+- 删除弹窗（`{#if showPasswordDialog}` 整个 overlay + modal）
+- 点击"修改密码"按钮切换展开/收起状态，按钮文字在"修改密码"/"取消"间切换
+- 展开时显示内联二级选项区域，使用与"开机自启"相同的样式：
+  - `ml-3 pl-3 border-l-2 border-primary-200/60 dark:border-primary-800/40`
+- 包含：当前密码、新密码、确认新密码三个输入框 + 确认按钮
+- 成功后自动收起表单并清空输入
+- 增加"当前密码不能为空"校验
+
+#### 修改文件
+- `src/routes/settings/components/SettingsGeneral.svelte`
+
+### 18. 修复 Web 端截图无法加载：Vite proxy 缺少 X-Forwarded-Host 头导致 API 401
+
+**问题**：Web 端（`start-all.bat` 启动）产生的活动记录都没有截图显示。
+
+**根因定位**：
+Tauri 内置 Web 静态服务器在反向代理请求到 47831 端口时，会追加 `X-Forwarded-Host: localhost:5173` 头。后端 [localhost_api.rs](file:///g:/Work-Review/src-tauri/src/localhost_api.rs) 的 `route_request()` 依赖此头判断"同源代理免鉴权"：
+
+```rust
+let forwarded_from_web_static = request
+    .headers
+    .get("x-forwarded-host")
+    .map(|v| v.trim() == "localhost:5173")
+    .unwrap_or(false);
+
+if needs_auth && !forwarded_from_web_static {
+    // → 401 Unauthorized
+}
+```
+
+但 Vite 开发服务器的 `server.proxy` **不会自动添加 `X-Forwarded-Host` 头**（`changeOrigin: true` 只改 `Host`/`Origin`），导致所有 API 请求被 401 拒绝，前端拿不到活动数据（包括截图路径），截图加载请求也被 401 拦截。
+
+**修复方案**：
+在 [vite.config.ts](file:///g:/Work-Review/vite.config.ts) 的 proxy 配置中为每个代理规则添加 `headers: { 'X-Forwarded-Host': 'localhost:5173' }`，与 Tauri 内置 Web 静态服务器的行为一致：
+
+```typescript
+proxy: {
+  '/v1': {
+    target: 'http://127.0.0.1:47831',
+    changeOrigin: true,
+    headers: { 'X-Forwarded-Host': 'localhost:5173' },
+  },
+  // ... 同理 /health、/metrics
+},
+```
+
+#### 修改文件
+- `vite.config.ts`
+
 ### 17. 修复 Web 端 404：Vite 开发服务器未配置 API 反向代理
 
 **问题**：一键启动脚本（`start-all.bat`）启动后，浏览器访问 `http://localhost:5173` 输入密码提示「验证失败，请重试」，错误详情为 `[safeInvoke] verify_password 回退失败 (404)`。
